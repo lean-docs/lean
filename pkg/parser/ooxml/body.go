@@ -25,12 +25,52 @@ type xmlBody struct {
 }
 
 type xmlParagraph struct {
-	Runs []xmlRun `xml:"r"`
+	Props *xmlParaProps `xml:"pPr"`
+	Runs  []xmlRun      `xml:"r"`
+}
+
+type xmlParaProps struct {
+	Align           *xmlValAttr `xml:"jc"`
+	Spacing         *xmlSpacing `xml:"spacing"`
+	Indent          *xmlIndent  `xml:"ind"`
+	Tabs            *xmlTabs    `xml:"tabs"`
+	KeepLines       *xmlToggle  `xml:"keepLines"`
+	KeepNext        *xmlToggle  `xml:"keepNext"`
+	PageBreakBefore *xmlToggle  `xml:"pageBreakBefore"`
+}
+
+type xmlSpacing struct {
+	Before   string `xml:"before,attr"`
+	After    string `xml:"after,attr"`
+	Line     string `xml:"line,attr"`
+	LineRule string `xml:"lineRule,attr"`
+}
+
+type xmlIndent struct {
+	Left      string `xml:"left,attr"`
+	Right     string `xml:"right,attr"`
+	FirstLine string `xml:"firstLine,attr"`
+	Hanging   string `xml:"hanging,attr"`
+}
+
+type xmlTabs struct {
+	Tabs []xmlTab `xml:"tab"`
+}
+
+type xmlTab struct {
+	Val    string `xml:"val,attr"`
+	Pos    string `xml:"pos,attr"`
+	Leader string `xml:"leader,attr"`
 }
 
 type xmlRun struct {
-	Props *xmlRunProps `xml:"rPr"`
-	Text  []xmlText    `xml:"t"`
+	Props  *xmlRunProps `xml:"rPr"`
+	Text   []xmlText    `xml:"t"`
+	Breaks []xmlBreak   `xml:"br"`
+}
+
+type xmlBreak struct {
+	Type string `xml:"type,attr"`
 }
 
 type xmlText struct {
@@ -79,6 +119,9 @@ func parseDocument(xmlBytes []byte, doc *ir.Document) error {
 	section := ir.Section{}
 	for i, xp := range x.Body.Paragraphs {
 		p := &ir.Paragraph{ID: fmt.Sprintf("p%d", i+1)}
+		if xp.Props != nil {
+			applyParaProps(&p.Para, xp.Props)
+		}
 		for _, xr := range xp.Runs {
 			run := convertRun(xr)
 			p.Runs = append(p.Runs, run)
@@ -89,10 +132,118 @@ func parseDocument(xmlBytes []byte, doc *ir.Document) error {
 	return nil
 }
 
+func applyParaProps(a *ir.ParaAttrs, p *xmlParaProps) {
+	if p.Align != nil {
+		a.Align = alignFromVal(p.Align.Val)
+	}
+	if p.Spacing != nil {
+		a.Spacing.Before = twipAttr(p.Spacing.Before)
+		a.Spacing.After = twipAttr(p.Spacing.After)
+		a.Spacing.Line = twipAttr(p.Spacing.Line)
+		a.Spacing.LineRule = lineRuleFromVal(p.Spacing.LineRule)
+	}
+	if p.Indent != nil {
+		a.Indent.Left = twipAttr(p.Indent.Left)
+		a.Indent.Right = twipAttr(p.Indent.Right)
+		a.Indent.FirstLine = twipAttr(p.Indent.FirstLine)
+		a.Indent.Hanging = twipAttr(p.Indent.Hanging)
+	}
+	if p.Tabs != nil {
+		for _, t := range p.Tabs.Tabs {
+			a.TabStops = append(a.TabStops, ir.TabStop{
+				Position:  twipAttr(t.Pos),
+				Alignment: tabAlignFromVal(t.Val),
+				Leader:    tabLeaderFromVal(t.Leader),
+			})
+		}
+	}
+	if toggleOn(p.KeepLines) {
+		a.KeepTogether = true
+	}
+	if toggleOn(p.KeepNext) {
+		a.KeepWithNext = true
+	}
+	if toggleOn(p.PageBreakBefore) {
+		a.PageBreakBefore = true
+	}
+}
+
+func alignFromVal(v string) ir.Alignment {
+	switch v {
+	case "center":
+		return ir.AlignCenter
+	case "right", "end":
+		return ir.AlignRight
+	case "both", "distribute", "justify":
+		return ir.AlignJustify
+	}
+	return ir.AlignLeft
+}
+
+func lineRuleFromVal(v string) ir.LineRule {
+	switch v {
+	case "exact":
+		return ir.LineRuleExact
+	case "atLeast":
+		return ir.LineRuleAtLeast
+	}
+	return ir.LineRuleAuto
+}
+
+func tabAlignFromVal(v string) ir.TabAlignment {
+	switch v {
+	case "right":
+		return ir.TabAlignRight
+	case "center":
+		return ir.TabAlignCenter
+	case "decimal":
+		return ir.TabAlignDecimal
+	}
+	return ir.TabAlignLeft
+}
+
+func tabLeaderFromVal(v string) ir.TabLeader {
+	switch v {
+	case "dot":
+		return ir.TabLeaderDot
+	case "hyphen":
+		return ir.TabLeaderDash
+	case "underscore":
+		return ir.TabLeaderUnderscore
+	}
+	return ir.TabLeaderNone
+}
+
+// twipAttr reads a twips-valued string attribute and returns its point value.
+// Missing or malformed input returns 0.
+func twipAttr(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+	return units.TwipsToPoints(v)
+}
+
+func breakTypeFromVal(v string) ir.BreakType {
+	switch v {
+	case "page":
+		return ir.BreakPage
+	case "column":
+		return ir.BreakColumn
+	}
+	return ir.BreakLine
+}
+
 func convertRun(xr xmlRun) ir.Run {
 	var run ir.Run
 	for _, t := range xr.Text {
 		run.Text += t.Value
+	}
+	if len(xr.Breaks) > 0 {
+		run.Break = breakTypeFromVal(xr.Breaks[len(xr.Breaks)-1].Type)
 	}
 	if xr.Props != nil {
 		applyRunProps(&run.Attrs, xr.Props)

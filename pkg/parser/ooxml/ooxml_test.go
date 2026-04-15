@@ -130,8 +130,8 @@ func TestOOXMLHighlightColor(t *testing.T) {
 
 // C4.15 — Paragraph alignment (center)
 func TestOOXMLParagraphAlignCenter(t *testing.T) {
-	// TODO: fixture with center-aligned paragraph
-	doc, err := Parse(nil)
+	body := `<w:p><w:pPr><w:jc w:val="center"/></w:pPr>` + runXML("", "x") + `</w:p>`
+	doc, err := Parse(buildDocx(t, body))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
 	assert.Equal(t, ir.AlignCenter, p.Para.Align)
@@ -139,38 +139,40 @@ func TestOOXMLParagraphAlignCenter(t *testing.T) {
 
 // C4.16 — Paragraph spacing (before/after)
 func TestOOXMLParagraphSpacing(t *testing.T) {
-	// TODO: fixture with paragraph spacing
-	doc, err := Parse(nil)
+	body := `<w:p><w:pPr><w:spacing w:before="240" w:after="120" w:line="240" w:lineRule="auto"/></w:pPr>` + runXML("", "x") + `</w:p>`
+	doc, err := Parse(buildDocx(t, body))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	assert.Greater(t, p.Para.Spacing.Before, float64(0))
-	assert.Greater(t, p.Para.Spacing.After, float64(0))
+	assert.Equal(t, float64(12), p.Para.Spacing.Before) // 240 twips = 12 pt
+	assert.Equal(t, float64(6), p.Para.Spacing.After)
+	assert.Equal(t, ir.LineRuleAuto, p.Para.Spacing.LineRule)
 }
 
 // C4.17 — Paragraph indent (left, first-line)
 func TestOOXMLParagraphIndent(t *testing.T) {
-	// TODO: fixture with paragraph indent
-	doc, err := Parse(nil)
+	body := `<w:p><w:pPr><w:ind w:left="720" w:firstLine="240"/></w:pPr>` + runXML("", "x") + `</w:p>`
+	doc, err := Parse(buildDocx(t, body))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	assert.Greater(t, p.Para.Indent.Left, float64(0))
-	assert.Greater(t, p.Para.Indent.FirstLine, float64(0))
+	assert.Equal(t, float64(36), p.Para.Indent.Left) // 720 twips = 36 pt
+	assert.Equal(t, float64(12), p.Para.Indent.FirstLine)
 }
 
 // C4.18 — Tab stops
 func TestOOXMLTabStops(t *testing.T) {
-	// TODO: fixture with custom tab stops
-	doc, err := Parse(nil)
+	body := `<w:p><w:pPr><w:tabs><w:tab w:val="left" w:pos="2160" w:leader="dot"/></w:tabs></w:pPr>` + runXML("", "x") + `</w:p>`
+	doc, err := Parse(buildDocx(t, body))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	require.GreaterOrEqual(t, len(p.Para.TabStops), 1)
-	assert.Greater(t, p.Para.TabStops[0].Position, float64(0))
+	require.Len(t, p.Para.TabStops, 1)
+	assert.Equal(t, float64(108), p.Para.TabStops[0].Position) // 2160 twips = 108 pt
+	assert.Equal(t, ir.TabLeaderDot, p.Para.TabStops[0].Leader)
 }
 
 // C4.19 — KeepTogether / KeepWithNext
 func TestOOXMLKeepTogetherKeepWithNext(t *testing.T) {
-	// TODO: fixture with keep-together and keep-with-next
-	doc, err := Parse(nil)
+	body := `<w:p><w:pPr><w:keepLines/><w:keepNext/></w:pPr>` + runXML("", "x") + `</w:p>`
+	doc, err := Parse(buildDocx(t, body))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
 	assert.True(t, p.Para.KeepTogether)
@@ -179,8 +181,8 @@ func TestOOXMLKeepTogetherKeepWithNext(t *testing.T) {
 
 // C4.20 — PageBreakBefore
 func TestOOXMLPageBreakBefore(t *testing.T) {
-	// TODO: fixture with page-break-before paragraph
-	doc, err := Parse(nil)
+	body := `<w:p><w:pPr><w:pageBreakBefore/></w:pPr>` + runXML("", "x") + `</w:p>`
+	doc, err := Parse(buildDocx(t, body))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
 	assert.True(t, p.Para.PageBreakBefore)
@@ -238,50 +240,29 @@ func TestOOXMLHyperlinkBookmark(t *testing.T) {
 
 // C4.25 — Line break
 func TestOOXMLLineBreak(t *testing.T) {
-	// TODO: fixture with a line break inside a paragraph
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(`<w:r><w:br/></w:r>`)))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	var found bool
-	for _, r := range p.Runs {
-		if r.Break == ir.BreakLine {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "should find a run with BreakLine")
+	require.GreaterOrEqual(t, len(p.Runs), 1)
+	assert.Equal(t, ir.BreakLine, p.Runs[0].Break)
 }
 
 // C4.26 — Page break (inline)
 func TestOOXMLPageBreakInline(t *testing.T) {
-	// TODO: fixture with an inline page break
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(`<w:r><w:br w:type="page"/></w:r>`)))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	var found bool
-	for _, r := range p.Runs {
-		if r.Break == ir.BreakPage {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "should find a run with BreakPage")
+	require.GreaterOrEqual(t, len(p.Runs), 1)
+	assert.Equal(t, ir.BreakPage, p.Runs[0].Break)
 }
 
 // C4.27 — Column break
 func TestOOXMLColumnBreak(t *testing.T) {
-	// TODO: fixture with a column break
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(`<w:r><w:br w:type="column"/></w:r>`)))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	var found bool
-	for _, r := range p.Runs {
-		if r.Break == ir.BreakColumn {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "should find a run with BreakColumn")
+	require.GreaterOrEqual(t, len(p.Runs), 1)
+	assert.Equal(t, ir.BreakColumn, p.Runs[0].Break)
 }
 
 // C4.28 — Bullet list (numbering reference)

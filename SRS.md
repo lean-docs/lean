@@ -340,6 +340,28 @@ side effects. No test makes network calls.
 
 ---
 
+### Cluster 12b — Units and Numbering Primitives
+
+> Pure, reusable building blocks shared by parsers, exporters, and layout.
+> Translated in posture (not copy) from SuperDoc's `word-layout` package.
+
+| ID | Test | Pass Condition |
+|----|------|----------------|
+| C12b.1 | `TestPixelsToTwips` | 96 px → 1440 twips; invalid → 0 |
+| C12b.2 | `TestTwipsRoundTripPoints` | `TwipsToPoints(PointsToTwips(x)) == x` |
+| C12b.3 | `TestHalfPoints` | 24 half-points → 12 points; inverse holds |
+| C12b.4 | `TestEMU` | 72 pt ↔ 914400 EMU ↔ 96 px at 1 inch |
+| C12b.5 | `TestInvalidInputsReturnZero` | NaN/Inf input → 0 across all converters |
+| C12b.6 | `TestFlatListIncrements` | Sequential `Calculate` on level 0 yields 1,2,3… |
+| C12b.7 | `TestCustomStart` | `SetStart` value honored by first `Calculate` |
+| C12b.8 | `TestRestartNilRestartsOnAnyLowerLevel` | Nil restart → child counter resets when parent fires |
+| C12b.9 | `TestNestedListRestartsChild` | `restart=0` means "never restart" (OOXML semantics) |
+| C12b.10 | `TestAncestorPath` | `FullPath` returns `[1,2,1]` for third-level item under 1.2 |
+| C12b.11 | `TestCacheReturnsCopy` | Cached paths are copies — mutating caller slice does not poison cache |
+| C12b.12 | `TestInvalidInputsPanic` | Empty numId / negative level / negative pos panic |
+
+---
+
 ### Cluster 13 — Font Management
 
 | ID | Test | Pass Condition |
@@ -379,6 +401,30 @@ side effects. No test makes network calls.
 | 0.6.0 | 12 | Mutable IR and operation model |
 | 0.7.0 | 13 | Font management |
 | 1.0.0 | 14 | Performance validated, public API stable |
+
+---
+
+## Architectural Invariants
+
+### Parse vs Resolve boundary
+
+Parsers MUST store raw OOXML properties and style references as they appear
+in the source — inline direct formatting stays inline, style references stay
+as references. Parsers MUST NOT resolve the OOXML style cascade (defaults →
+named style → conditional formatting → direct) during import.
+
+Cascade resolution is the exclusive responsibility of a separate resolver
+(planned: `pkg/styles/resolve.go`), invoked by exporters and the layout
+engine. This keeps round-trip fidelity: an IR parsed from .docx and
+re-exported without mutation must produce the same style references, not
+flattened direct formatting.
+
+### Pure layout primitives
+
+Unit conversion (`pkg/units`) and list counter state (`pkg/numbering`) are
+pure, stateful-only-by-explicit-handle packages with no I/O and no
+dependency on the IR. Parsers, exporters, and the layout engine all consume
+them. This mirrors SuperDoc's `word-layout` architecture.
 
 ---
 

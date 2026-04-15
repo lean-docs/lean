@@ -1,8 +1,10 @@
 package ooxml
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"strconv"
 
 	"github.com/lean-docs/lean/pkg/ir"
@@ -12,17 +14,6 @@ import (
 // ---------------------------------------------------------------------------
 // XML shape (only what the current scope needs)
 // ---------------------------------------------------------------------------
-
-const wNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-
-type xmlDocument struct {
-	XMLName xml.Name `xml:"document"`
-	Body    xmlBody  `xml:"body"`
-}
-
-type xmlBody struct {
-	Paragraphs []xmlParagraph `xml:"p"`
-}
 
 type xmlParagraph struct {
 	Props *xmlParaProps `xml:"pPr"`
@@ -86,7 +77,7 @@ type xmlRunProps struct {
 	SmallCaps *xmlToggle   `xml:"smallCaps"`
 	AllCaps   *xmlToggle   `xml:"caps"`
 	Vert      *xmlValAttr  `xml:"vertAlign"`
-	Size      *xmlValAttr  `xml:"sz"`     // half-points
+	Size      *xmlValAttr  `xml:"sz"`
 	Fonts     *xmlRunFonts `xml:"rFonts"`
 	Color     *xmlValAttr  `xml:"color"`
 	Highlight *xmlValAttr  `xml:"highlight"`
@@ -106,135 +97,197 @@ type xmlRunFonts struct {
 	EastAsia string `xml:"eastAsia,attr"`
 }
 
+// --- table ---
+
+type xmlTable struct {
+	Props *xmlTblProps `xml:"tblPr"`
+	Grid  *xmlTblGrid  `xml:"tblGrid"`
+	Rows  []xmlTableRow `xml:"tr"`
+}
+
+type xmlTblProps struct {
+	Style   *xmlValAttr  `xml:"tblStyle"`
+	Align   *xmlValAttr  `xml:"jc"`
+	Borders *xmlBorders  `xml:"tblBorders"`
+	Shading *xmlShading  `xml:"shd"`
+}
+
+type xmlTblGrid struct {
+	Cols []xmlGridCol `xml:"gridCol"`
+}
+
+type xmlGridCol struct {
+	W string `xml:"w,attr"`
+}
+
+type xmlTableRow struct {
+	Props *xmlRowProps  `xml:"trPr"`
+	Cells []xmlTableCell `xml:"tc"`
+}
+
+type xmlRowProps struct {
+	Header *xmlToggle   `xml:"tblHeader"`
+	Height *xmlValAttr  `xml:"trHeight"`
+}
+
+type xmlTableCell struct {
+	Props      *xmlCellProps  `xml:"tcPr"`
+	Paragraphs []xmlParagraph `xml:"p"`
+	// nested tables parsed via custom UnmarshalXML on xmlTableCell
+	Tables     []xmlTable     `xml:"tbl"`
+}
+
+type xmlCellProps struct {
+	Width    *xmlCellW   `xml:"tcW"`
+	GridSpan *xmlValAttr `xml:"gridSpan"`
+	VMerge   *xmlVMerge  `xml:"vMerge"`
+	VAlign   *xmlValAttr `xml:"vAlign"`
+	Borders  *xmlBorders `xml:"tcBorders"`
+	Shading  *xmlShading `xml:"shd"`
+	Margin   *xmlTcMar   `xml:"tcMar"`
+}
+
+type xmlCellW struct {
+	W    string `xml:"w,attr"`
+	Type string `xml:"type,attr"`
+}
+
+type xmlVMerge struct {
+	Val string `xml:"val,attr"` // "restart" or absent (= continue)
+}
+
+type xmlBorders struct {
+	Top     *xmlBorder `xml:"top"`
+	Bottom  *xmlBorder `xml:"bottom"`
+	Left    *xmlBorder `xml:"left"`
+	Right   *xmlBorder `xml:"right"`
+	InsideH *xmlBorder `xml:"insideH"`
+	InsideV *xmlBorder `xml:"insideV"`
+}
+
+type xmlBorder struct {
+	Val   string `xml:"val,attr"`
+	Sz    string `xml:"sz,attr"` // eighths of a point
+	Color string `xml:"color,attr"`
+}
+
+type xmlShading struct {
+	Fill  string `xml:"fill,attr"`
+	Color string `xml:"color,attr"`
+	Val   string `xml:"val,attr"`
+}
+
+type xmlTcMar struct {
+	Top    *xmlMarEdge `xml:"top"`
+	Bottom *xmlMarEdge `xml:"bottom"`
+	Left   *xmlMarEdge `xml:"left"`
+	Right  *xmlMarEdge `xml:"right"`
+}
+
+type xmlMarEdge struct {
+	W string `xml:"w,attr"`
+}
+
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
 
+// parseDocument reads document.xml and appends a populated Section to doc.
+// Body children (w:p, w:tbl) are handled in order; unknown elements skipped.
 func parseDocument(xmlBytes []byte, doc *ir.Document) error {
-	var x xmlDocument
-	if err := xml.Unmarshal(xmlBytes, &x); err != nil {
-		return fmt.Errorf("ooxml: parse document.xml: %w", err)
+	dec := xml.NewDecoder(bytes.NewReader(xmlBytes))
+	// Find <w:body>
+	if err := advanceTo(dec, "body"); err != nil {
+		return err
 	}
 
 	section := ir.Section{}
-	for i, xp := range x.Body.Paragraphs {
-		p := &ir.Paragraph{ID: fmt.Sprintf("p%d", i+1)}
-		if xp.Props != nil {
-			applyParaProps(&p.Para, xp.Props)
-		}
-		for _, xr := range xp.Runs {
-			run := convertRun(xr)
-			p.Runs = append(p.Runs, run)
-		}
-		section.Blocks = append(section.Blocks, p)
+	ctx := &parseCtx{}
+	if err := parseBlocks(dec, "body", &section.Blocks, ctx); err != nil {
+		return err
 	}
 	doc.Sections = append(doc.Sections, section)
 	return nil
 }
 
-func applyParaProps(a *ir.ParaAttrs, p *xmlParaProps) {
-	if p.Align != nil {
-		a.Align = alignFromVal(p.Align.Val)
-	}
-	if p.Spacing != nil {
-		a.Spacing.Before = twipAttr(p.Spacing.Before)
-		a.Spacing.After = twipAttr(p.Spacing.After)
-		a.Spacing.Line = twipAttr(p.Spacing.Line)
-		a.Spacing.LineRule = lineRuleFromVal(p.Spacing.LineRule)
-	}
-	if p.Indent != nil {
-		a.Indent.Left = twipAttr(p.Indent.Left)
-		a.Indent.Right = twipAttr(p.Indent.Right)
-		a.Indent.FirstLine = twipAttr(p.Indent.FirstLine)
-		a.Indent.Hanging = twipAttr(p.Indent.Hanging)
-	}
-	if p.Tabs != nil {
-		for _, t := range p.Tabs.Tabs {
-			a.TabStops = append(a.TabStops, ir.TabStop{
-				Position:  twipAttr(t.Pos),
-				Alignment: tabAlignFromVal(t.Val),
-				Leader:    tabLeaderFromVal(t.Leader),
-			})
+// parseCtx carries counters used for block ID generation.
+type parseCtx struct {
+	paraSeq  int
+	tableSeq int
+}
+
+func (c *parseCtx) nextParaID() string {
+	c.paraSeq++
+	return fmt.Sprintf("p%d", c.paraSeq)
+}
+func (c *parseCtx) nextTableID() string {
+	c.tableSeq++
+	return fmt.Sprintf("t%d", c.tableSeq)
+}
+
+// advanceTo consumes tokens until a StartElement with the given local name
+// is seen; the decoder is positioned just after that StartElement.
+func advanceTo(dec *xml.Decoder, local string) error {
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return fmt.Errorf("ooxml: no <%s>: %w", local, err)
+		}
+		if se, ok := tok.(xml.StartElement); ok && se.Name.Local == local {
+			return nil
 		}
 	}
-	if toggleOn(p.KeepLines) {
-		a.KeepTogether = true
-	}
-	if toggleOn(p.KeepNext) {
-		a.KeepWithNext = true
-	}
-	if toggleOn(p.PageBreakBefore) {
-		a.PageBreakBefore = true
+}
+
+// parseBlocks walks children of the current element, emitting IR blocks.
+// `parentLocal` is the local name of the element whose children we consume;
+// we stop at its matching end token.
+func parseBlocks(dec *xml.Decoder, parentLocal string, blocks *[]ir.Block, ctx *parseCtx) error {
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("ooxml: read %s children: %w", parentLocal, err)
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "p":
+				var xp xmlParagraph
+				if err := dec.DecodeElement(&xp, &t); err != nil {
+					return err
+				}
+				*blocks = append(*blocks, convertParagraph(xp, ctx.nextParaID()))
+			case "tbl":
+				var xt xmlTable
+				if err := dec.DecodeElement(&xt, &t); err != nil {
+					return err
+				}
+				*blocks = append(*blocks, convertTable(xt, ctx))
+			default:
+				if err := dec.Skip(); err != nil {
+					return err
+				}
+			}
+		case xml.EndElement:
+			if t.Name.Local == parentLocal {
+				return nil
+			}
+		}
 	}
 }
 
-func alignFromVal(v string) ir.Alignment {
-	switch v {
-	case "center":
-		return ir.AlignCenter
-	case "right", "end":
-		return ir.AlignRight
-	case "both", "distribute", "justify":
-		return ir.AlignJustify
+func convertParagraph(xp xmlParagraph, id string) *ir.Paragraph {
+	p := &ir.Paragraph{ID: id}
+	if xp.Props != nil {
+		applyParaProps(&p.Para, xp.Props)
 	}
-	return ir.AlignLeft
-}
-
-func lineRuleFromVal(v string) ir.LineRule {
-	switch v {
-	case "exact":
-		return ir.LineRuleExact
-	case "atLeast":
-		return ir.LineRuleAtLeast
+	for _, xr := range xp.Runs {
+		p.Runs = append(p.Runs, convertRun(xr))
 	}
-	return ir.LineRuleAuto
-}
-
-func tabAlignFromVal(v string) ir.TabAlignment {
-	switch v {
-	case "right":
-		return ir.TabAlignRight
-	case "center":
-		return ir.TabAlignCenter
-	case "decimal":
-		return ir.TabAlignDecimal
-	}
-	return ir.TabAlignLeft
-}
-
-func tabLeaderFromVal(v string) ir.TabLeader {
-	switch v {
-	case "dot":
-		return ir.TabLeaderDot
-	case "hyphen":
-		return ir.TabLeaderDash
-	case "underscore":
-		return ir.TabLeaderUnderscore
-	}
-	return ir.TabLeaderNone
-}
-
-// twipAttr reads a twips-valued string attribute and returns its point value.
-// Missing or malformed input returns 0.
-func twipAttr(s string) float64 {
-	if s == "" {
-		return 0
-	}
-	v, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return 0
-	}
-	return units.TwipsToPoints(v)
-}
-
-func breakTypeFromVal(v string) ir.BreakType {
-	switch v {
-	case "page":
-		return ir.BreakPage
-	case "column":
-		return ir.BreakColumn
-	}
-	return ir.BreakLine
+	return p
 }
 
 func convertRun(xr xmlRun) ir.Run {
@@ -251,8 +304,6 @@ func convertRun(xr xmlRun) ir.Run {
 	return run
 }
 
-// toggleOn interprets an OOXML toggle property. Presence with no val or
-// val="1"/"true"/"on" → true; val="0"/"false"/"off" → false.
 func toggleOn(t *xmlToggle) bool {
 	if t == nil {
 		return false
@@ -311,6 +362,283 @@ func applyRunProps(a *ir.RunAttrs, p *xmlRunProps) {
 	}
 }
 
+func applyParaProps(a *ir.ParaAttrs, p *xmlParaProps) {
+	if p.Align != nil {
+		a.Align = alignFromVal(p.Align.Val)
+	}
+	if p.Spacing != nil {
+		a.Spacing.Before = twipAttr(p.Spacing.Before)
+		a.Spacing.After = twipAttr(p.Spacing.After)
+		a.Spacing.Line = twipAttr(p.Spacing.Line)
+		a.Spacing.LineRule = lineRuleFromVal(p.Spacing.LineRule)
+	}
+	if p.Indent != nil {
+		a.Indent.Left = twipAttr(p.Indent.Left)
+		a.Indent.Right = twipAttr(p.Indent.Right)
+		a.Indent.FirstLine = twipAttr(p.Indent.FirstLine)
+		a.Indent.Hanging = twipAttr(p.Indent.Hanging)
+	}
+	if p.Tabs != nil {
+		for _, t := range p.Tabs.Tabs {
+			a.TabStops = append(a.TabStops, ir.TabStop{
+				Position:  twipAttr(t.Pos),
+				Alignment: tabAlignFromVal(t.Val),
+				Leader:    tabLeaderFromVal(t.Leader),
+			})
+		}
+	}
+	if toggleOn(p.KeepLines) {
+		a.KeepTogether = true
+	}
+	if toggleOn(p.KeepNext) {
+		a.KeepWithNext = true
+	}
+	if toggleOn(p.PageBreakBefore) {
+		a.PageBreakBefore = true
+	}
+}
+
+// --- table conversion ---
+
+func convertTable(xt xmlTable, ctx *parseCtx) *ir.Table {
+	tbl := &ir.Table{ID: ctx.nextTableID()}
+	if xt.Props != nil {
+		applyTableProps(tbl, xt.Props)
+	}
+	if xt.Grid != nil {
+		for _, c := range xt.Grid.Cols {
+			tbl.ColumnWidths = append(tbl.ColumnWidths, twipAttr(c.W))
+		}
+	}
+	for _, xr := range xt.Rows {
+		row := ir.TableRow{}
+		if xr.Props != nil {
+			if toggleOn(xr.Props.Header) {
+				row.IsHeader = true
+			}
+			if xr.Props.Height != nil && xr.Props.Height.Val != "" {
+				h := twipAttr(xr.Props.Height.Val)
+				row.Height = &h
+			}
+		}
+		for _, xc := range xr.Cells {
+			row.Cells = append(row.Cells, convertCell(xc, ctx))
+		}
+		tbl.Rows = append(tbl.Rows, row)
+	}
+	applyRowSpans(tbl, xt.Rows)
+	return tbl
+}
+
+// applyRowSpans fills RowSpan on origin cells (vMerge="restart") by counting
+// subsequent rows where the cell at the same column index continues the
+// merge (vMerge present without restart). Column indexing here is by cell
+// position within the row — gridSpan-aware alignment is not yet handled.
+func applyRowSpans(tbl *ir.Table, rows []xmlTableRow) {
+	kindAt := func(i, j int) string {
+		if i >= len(rows) || j >= len(rows[i].Cells) {
+			return ""
+		}
+		c := rows[i].Cells[j]
+		if c.Props == nil || c.Props.VMerge == nil {
+			return ""
+		}
+		if c.Props.VMerge.Val == "" {
+			return "continue"
+		}
+		return c.Props.VMerge.Val
+	}
+	for i := range rows {
+		for j := range rows[i].Cells {
+			if kindAt(i, j) != "restart" {
+				continue
+			}
+			span := 1
+			for k := i + 1; k < len(rows); k++ {
+				if kindAt(k, j) != "continue" {
+					break
+				}
+				span++
+			}
+			tbl.Rows[i].Cells[j].RowSpan = span
+		}
+	}
+}
+
+func applyTableProps(t *ir.Table, p *xmlTblProps) {
+	if p.Style != nil {
+		t.Style = p.Style.Val
+	}
+	if p.Align != nil {
+		t.Align = alignFromVal(p.Align.Val)
+	}
+	if p.Borders != nil {
+		t.Borders.Top = borderFrom(p.Borders.Top)
+		t.Borders.Bottom = borderFrom(p.Borders.Bottom)
+		t.Borders.Left = borderFrom(p.Borders.Left)
+		t.Borders.Right = borderFrom(p.Borders.Right)
+		t.Borders.InsideH = borderFrom(p.Borders.InsideH)
+		t.Borders.InsideV = borderFrom(p.Borders.InsideV)
+	}
+	if p.Shading != nil {
+		if c, ok := parseHexColor(p.Shading.Fill); ok {
+			t.Shading = c
+		}
+	}
+}
+
+func convertCell(xc xmlTableCell, ctx *parseCtx) ir.TableCell {
+	cell := ir.TableCell{ColSpan: 1, RowSpan: 1}
+	if xc.Props != nil {
+		applyCellProps(&cell, xc.Props)
+	}
+	for _, xp := range xc.Paragraphs {
+		cell.Blocks = append(cell.Blocks, convertParagraph(xp, ctx.nextParaID()))
+	}
+	for _, xt := range xc.Tables {
+		cell.Blocks = append(cell.Blocks, convertTable(xt, ctx))
+	}
+	return cell
+}
+
+func applyCellProps(c *ir.TableCell, p *xmlCellProps) {
+	if p.Width != nil {
+		c.Width = twipAttr(p.Width.W)
+	}
+	if p.GridSpan != nil {
+		if n, err := strconv.Atoi(p.GridSpan.Val); err == nil && n > 0 {
+			c.ColSpan = n
+		}
+	}
+	if p.VAlign != nil {
+		c.VAlign = vAlignFromVal(p.VAlign.Val)
+	}
+	if p.Borders != nil {
+		c.Borders.Top = borderFrom(p.Borders.Top)
+		c.Borders.Bottom = borderFrom(p.Borders.Bottom)
+		c.Borders.Left = borderFrom(p.Borders.Left)
+		c.Borders.Right = borderFrom(p.Borders.Right)
+	}
+	if p.Shading != nil {
+		if col, ok := parseHexColor(p.Shading.Fill); ok {
+			c.Shading = col
+		}
+	}
+	if p.Margin != nil {
+		c.Padding = padFromTcMar(p.Margin)
+	}
+}
+
+func padFromTcMar(m *xmlTcMar) ir.Padding {
+	pad := ir.Padding{}
+	if m.Top != nil {
+		pad.Top = twipAttr(m.Top.W)
+	}
+	if m.Bottom != nil {
+		pad.Bottom = twipAttr(m.Bottom.W)
+	}
+	if m.Left != nil {
+		pad.Left = twipAttr(m.Left.W)
+	}
+	if m.Right != nil {
+		pad.Right = twipAttr(m.Right.W)
+	}
+	return pad
+}
+
+func borderFrom(b *xmlBorder) ir.Border {
+	if b == nil {
+		return ir.Border{}
+	}
+	out := ir.Border{Style: b.Val}
+	if b.Sz != "" {
+		if eighths, err := strconv.ParseFloat(b.Sz, 64); err == nil {
+			out.Width = eighths / 8.0 // sz in eighths of a point
+		}
+	}
+	if c, ok := parseHexColor(b.Color); ok {
+		out.Color = c
+	}
+	return out
+}
+
+func alignFromVal(v string) ir.Alignment {
+	switch v {
+	case "center":
+		return ir.AlignCenter
+	case "right", "end":
+		return ir.AlignRight
+	case "both", "distribute", "justify":
+		return ir.AlignJustify
+	}
+	return ir.AlignLeft
+}
+
+func lineRuleFromVal(v string) ir.LineRule {
+	switch v {
+	case "exact":
+		return ir.LineRuleExact
+	case "atLeast":
+		return ir.LineRuleAtLeast
+	}
+	return ir.LineRuleAuto
+}
+
+func tabAlignFromVal(v string) ir.TabAlignment {
+	switch v {
+	case "right":
+		return ir.TabAlignRight
+	case "center":
+		return ir.TabAlignCenter
+	case "decimal":
+		return ir.TabAlignDecimal
+	}
+	return ir.TabAlignLeft
+}
+
+func tabLeaderFromVal(v string) ir.TabLeader {
+	switch v {
+	case "dot":
+		return ir.TabLeaderDot
+	case "hyphen":
+		return ir.TabLeaderDash
+	case "underscore":
+		return ir.TabLeaderUnderscore
+	}
+	return ir.TabLeaderNone
+}
+
+func vAlignFromVal(v string) ir.VAlignment {
+	switch v {
+	case "center":
+		return ir.VAlignCenter
+	case "bottom":
+		return ir.VAlignBottom
+	}
+	return ir.VAlignTop
+}
+
+func twipAttr(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+	return units.TwipsToPoints(v)
+}
+
+func breakTypeFromVal(v string) ir.BreakType {
+	switch v {
+	case "page":
+		return ir.BreakPage
+	case "column":
+		return ir.BreakColumn
+	}
+	return ir.BreakLine
+}
+
 func underlineFromVal(v string) ir.UnderlineStyle {
 	switch v {
 	case "", "single":
@@ -348,8 +676,6 @@ func parseHexColor(s string) (ir.Color, bool) {
 	return ir.Color{R: uint8(n >> 16), G: uint8(n >> 8), B: uint8(n)}, true
 }
 
-// highlightFromName maps OOXML w:highlight keywords to approximate RGB.
-// Word's highlight palette is a fixed set of named colors.
 func highlightFromName(name string) ir.Color {
 	switch name {
 	case "yellow":
@@ -389,6 +715,3 @@ func highlightFromName(name string) ir.Color {
 	}
 	return ir.Color{}
 }
-
-// silence unused warning for wNS when we add namespace-validated parsing later
-var _ = wNS

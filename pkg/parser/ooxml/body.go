@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/lean-docs/lean/pkg/ir"
 	"github.com/lean-docs/lean/pkg/units"
@@ -194,11 +195,12 @@ type xmlMarEdge struct {
 
 // parseDocument reads document.xml and appends a populated Section to doc.
 // Body children (w:p, w:tbl) are handled in order; unknown elements skipped.
+const wNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
 func parseDocument(xmlBytes []byte, doc *ir.Document) error {
 	dec := xml.NewDecoder(bytes.NewReader(xmlBytes))
-	// Find <w:body>
-	if err := advanceTo(dec, "body"); err != nil {
-		return err
+	if err := advanceToNS(dec, wNS, "body"); err != nil {
+		return fmt.Errorf("ooxml: could not find document body: %w", err)
 	}
 
 	section := ir.Section{}
@@ -225,16 +227,18 @@ func (c *parseCtx) nextTableID() string {
 	return fmt.Sprintf("t%d", c.tableSeq)
 }
 
-// advanceTo consumes tokens until a StartElement with the given local name
-// is seen; the decoder is positioned just after that StartElement.
-func advanceTo(dec *xml.Decoder, local string) error {
+// advanceToNS consumes tokens until a StartElement with the given namespace
+// and local name is seen. An empty ns matches any namespace.
+func advanceToNS(dec *xml.Decoder, ns, local string) error {
 	for {
 		tok, err := dec.Token()
 		if err != nil {
 			return fmt.Errorf("ooxml: no <%s>: %w", local, err)
 		}
 		if se, ok := tok.(xml.StartElement); ok && se.Name.Local == local {
-			return nil
+			if ns == "" || se.Name.Space == ns {
+				return nil
+			}
 		}
 	}
 }
@@ -666,6 +670,7 @@ func baselineFromVal(v string) ir.BaselineShift {
 }
 
 func parseHexColor(s string) (ir.Color, bool) {
+	s = strings.TrimPrefix(s, "#")
 	if len(s) != 6 {
 		return ir.Color{}, false
 	}

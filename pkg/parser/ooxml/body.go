@@ -199,8 +199,11 @@ const wNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 func parseDocument(xmlBytes []byte, doc *ir.Document) error {
 	dec := xml.NewDecoder(bytes.NewReader(xmlBytes))
+	if err := advanceToNS(dec, wNS, "document"); err != nil {
+		return fmt.Errorf("ooxml: could not find <w:document>: %w", err)
+	}
 	if err := advanceToNS(dec, wNS, "body"); err != nil {
-		return fmt.Errorf("ooxml: could not find document body: %w", err)
+		return fmt.Errorf("ooxml: could not find <w:body>: %w", err)
 	}
 
 	section := ir.Section{}
@@ -439,10 +442,6 @@ func convertTable(xt xmlTable, ctx *parseCtx) *ir.Table {
 // is computed by summing gridSpan values left of each cell, so rows with mixed
 // column spans are handled correctly.
 func applyRowSpans(tbl *ir.Table, rows []xmlTableRow) {
-	type mergeKey struct {
-		row, cell int
-	}
-
 	gridCol := func(row, cellIdx int) int {
 		col := 0
 		for c := 0; c < cellIdx && c < len(rows[row].Cells); c++ {

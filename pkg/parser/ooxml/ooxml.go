@@ -60,8 +60,9 @@ func readEntry(r *zip.Reader, name string) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("ooxml: open %s: %w", name, err)
 		}
-		defer rc.Close()
-		return io.ReadAll(rc)
+		data, err := io.ReadAll(rc)
+		rc.Close()
+		return data, err
 	}
 	if name == "word/document.xml" {
 		return nil, ErrMissingDocumentXML

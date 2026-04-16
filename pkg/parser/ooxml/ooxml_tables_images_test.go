@@ -214,6 +214,29 @@ func TestOOXMLRowHeight(t *testing.T) {
 	assert.InDelta(t, 24.0, *row.Height, 0.1)
 }
 
+// C6.9b TestOOXMLRowSpanMixedColspan - vMerge with mixed gridSpan
+func TestOOXMLRowSpanMixedColspan(t *testing.T) {
+	// Row 0: [colspan=2 cell] [vMerge=restart cell]  → grid cols 0-1, 2
+	// Row 1: [cell] [cell] [vMerge=continue cell]    → grid cols 0, 1, 2
+	body := `<w:tbl>
+		<w:tr>
+			<w:tc><w:tcPr><w:gridSpan w:val="2"/></w:tcPr>` + runPara("wide") + `</w:tc>
+			<w:tc><w:tcPr><w:vMerge w:val="restart"/></w:tcPr>` + runPara("origin") + `</w:tc>
+		</w:tr>
+		<w:tr>
+			<w:tc>` + runPara("a") + `</w:tc>
+			<w:tc>` + runPara("b") + `</w:tc>
+			<w:tc><w:tcPr><w:vMerge/></w:tcPr>` + runPara("") + `</w:tc>
+		</w:tr>
+	</w:tbl>`
+	doc, err := Parse(buildDocx(t, body))
+	require.NoError(t, err)
+	table := firstTable(t, doc)
+	require.GreaterOrEqual(t, len(table.Rows), 2)
+	// Origin cell is row 0 cell 1 (grid column 2) — should span 2 rows.
+	assert.Equal(t, 2, table.Rows[0].Cells[1].RowSpan)
+}
+
 // runPara wraps plain text in a <w:p><w:r><w:t>... paragraph for fixtures.
 func runPara(text string) string {
 	return "<w:p><w:r><w:t>" + text + "</w:t></w:r></w:p>"

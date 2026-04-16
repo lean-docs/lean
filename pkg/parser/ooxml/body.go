@@ -435,15 +435,24 @@ func convertTable(xt xmlTable, ctx *parseCtx) *ir.Table {
 }
 
 // applyRowSpans fills RowSpan on origin cells (vMerge="restart") by counting
-// subsequent rows where the cell at the same column index continues the
-// merge (vMerge present without restart). Column indexing here is by cell
-// position within the row — gridSpan-aware alignment is not yet handled.
+// subsequent rows where the same grid column continues the merge. Grid column
+// is computed by summing gridSpan values left of each cell, so rows with mixed
+// column spans are handled correctly.
 func applyRowSpans(tbl *ir.Table, rows []xmlTableRow) {
-	kindAt := func(i, j int) string {
-		if i >= len(rows) || j >= len(rows[i].Cells) {
-			return ""
+	type mergeKey struct {
+		row, cell int
+	}
+
+	gridCol := func(row, cellIdx int) int {
+		col := 0
+		for c := 0; c < cellIdx && c < len(rows[row].Cells); c++ {
+			span := cellGridSpan(rows[row].Cells[c])
+			col += span
 		}
-		c := rows[i].Cells[j]
+		return col
+	}
+
+	vmergeKind := func(c xmlTableCell) string {
 		if c.Props == nil || c.Props.VMerge == nil {
 			return ""
 		}
@@ -452,14 +461,32 @@ func applyRowSpans(tbl *ir.Table, rows []xmlTableRow) {
 		}
 		return c.Props.VMerge.Val
 	}
+
+	// Build a map from grid column → cell index for each row.
+	cellAtGridCol := func(row, targetCol int) (int, bool) {
+		col := 0
+		for c := range rows[row].Cells {
+			if col == targetCol {
+				return c, true
+			}
+			col += cellGridSpan(rows[row].Cells[c])
+			if col > targetCol {
+				return 0, false
+			}
+		}
+		return 0, false
+	}
+
 	for i := range rows {
 		for j := range rows[i].Cells {
-			if kindAt(i, j) != "restart" {
+			if vmergeKind(rows[i].Cells[j]) != "restart" {
 				continue
 			}
+			col := gridCol(i, j)
 			span := 1
 			for k := i + 1; k < len(rows); k++ {
-				if kindAt(k, j) != "continue" {
+				ci, ok := cellAtGridCol(k, col)
+				if !ok || vmergeKind(rows[k].Cells[ci]) != "continue" {
 					break
 				}
 				span++
@@ -467,6 +494,15 @@ func applyRowSpans(tbl *ir.Table, rows []xmlTableRow) {
 			tbl.Rows[i].Cells[j].RowSpan = span
 		}
 	}
+}
+
+func cellGridSpan(c xmlTableCell) int {
+	if c.Props != nil && c.Props.GridSpan != nil {
+		if n, err := strconv.Atoi(c.Props.GridSpan.Val); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 1
 }
 
 func applyTableProps(t *ir.Table, p *xmlTblProps) {

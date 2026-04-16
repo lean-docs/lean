@@ -14,8 +14,7 @@ import (
 
 // C4.1 — Minimal .docx round-trip
 func TestOOXMLMinimalDocx(t *testing.T) {
-	// TODO: replace nil with real minimal .docx fixture bytes
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(runXML("", "hello"))))
 	require.NoError(t, err)
 	require.NotNil(t, doc)
 	assert.Equal(t, ir.IRVersion, doc.Meta.IRVersion)
@@ -24,22 +23,16 @@ func TestOOXMLMinimalDocx(t *testing.T) {
 
 // C4.2 — Single paragraph with plain text
 func TestOOXMLSingleParagraphPlainText(t *testing.T) {
-	// TODO: replace with fixture containing a single plain-text paragraph
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(runXML("", "hello world"))))
 	require.NoError(t, err)
-	require.NotNil(t, doc)
-	require.GreaterOrEqual(t, len(doc.Sections), 1)
-	require.GreaterOrEqual(t, len(doc.Sections[0].Blocks), 1)
-	p, ok := doc.Sections[0].Blocks[0].(*ir.Paragraph)
-	require.True(t, ok)
+	p := firstParagraph(t, doc)
 	require.GreaterOrEqual(t, len(p.Runs), 1)
-	assert.NotEmpty(t, p.Runs[0].Text)
+	assert.Equal(t, "hello world", p.Runs[0].Text)
 }
 
 // C4.3 — Bold run
 func TestOOXMLBoldRun(t *testing.T) {
-	// TODO: fixture with bold text
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(runXML(`<w:b/>`, "bold"))))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
 	require.GreaterOrEqual(t, len(p.Runs), 1)
@@ -48,118 +41,97 @@ func TestOOXMLBoldRun(t *testing.T) {
 
 // C4.4 — Italic run
 func TestOOXMLItalicRun(t *testing.T) {
-	// TODO: fixture with italic text
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(runXML(`<w:i/>`, "it"))))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	require.GreaterOrEqual(t, len(p.Runs), 1)
 	assert.True(t, p.Runs[0].Attrs.Italic)
 }
 
 // C4.5 — Underline run (single)
 func TestOOXMLUnderlineRun(t *testing.T) {
-	// TODO: fixture with underlined text
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(runXML(`<w:u w:val="single"/>`, "u"))))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	require.GreaterOrEqual(t, len(p.Runs), 1)
 	assert.Equal(t, ir.UnderlineSingle, p.Runs[0].Attrs.Underline)
 }
 
 // C4.6 — Strikethrough run
 func TestOOXMLStrikethroughRun(t *testing.T) {
-	// TODO: fixture with strikethrough text
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(runXML(`<w:strike/>`, "s"))))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	require.GreaterOrEqual(t, len(p.Runs), 1)
 	assert.True(t, p.Runs[0].Attrs.Strike)
 }
 
 // C4.7 — Superscript run
 func TestOOXMLSuperscriptRun(t *testing.T) {
-	// TODO: fixture with superscript text
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(runXML(`<w:vertAlign w:val="superscript"/>`, "x"))))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	require.GreaterOrEqual(t, len(p.Runs), 1)
 	assert.Equal(t, ir.BaselineSuperscript, p.Runs[0].Attrs.Baseline)
 }
 
 // C4.8 — Subscript run
 func TestOOXMLSubscriptRun(t *testing.T) {
-	// TODO: fixture with subscript text
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(runXML(`<w:vertAlign w:val="subscript"/>`, "x"))))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	require.GreaterOrEqual(t, len(p.Runs), 1)
 	assert.Equal(t, ir.BaselineSubscript, p.Runs[0].Attrs.Baseline)
 }
 
 // C4.9 — SmallCaps run
 func TestOOXMLSmallCapsRun(t *testing.T) {
-	// TODO: fixture with small-caps text
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(runXML(`<w:smallCaps/>`, "s"))))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	require.GreaterOrEqual(t, len(p.Runs), 1)
 	assert.True(t, p.Runs[0].Attrs.SmallCaps)
 }
 
 // C4.10 — AllCaps run
 func TestOOXMLAllCapsRun(t *testing.T) {
-	// TODO: fixture with all-caps text
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(runXML(`<w:caps/>`, "c"))))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	require.GreaterOrEqual(t, len(p.Runs), 1)
 	assert.True(t, p.Runs[0].Attrs.AllCaps)
 }
 
 // C4.11 — Font size
 func TestOOXMLFontSize(t *testing.T) {
-	// TODO: fixture with explicit font size (e.g. 24pt)
-	doc, err := Parse(nil)
+	// sz is in half-points: 24 → 12pt
+	doc, err := Parse(buildDocx(t, para(runXML(`<w:sz w:val="24"/>`, "x"))))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	require.GreaterOrEqual(t, len(p.Runs), 1)
-	assert.Greater(t, p.Runs[0].Attrs.FontSize, float64(0))
+	assert.Equal(t, float64(12), p.Runs[0].Attrs.FontSize)
 }
 
 // C4.12 — Font name
 func TestOOXMLFontName(t *testing.T) {
-	// TODO: fixture with explicit font name
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(runXML(`<w:rFonts w:ascii="Arial"/>`, "x"))))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	require.GreaterOrEqual(t, len(p.Runs), 1)
-	assert.NotEmpty(t, p.Runs[0].Attrs.FontName)
+	assert.Equal(t, "Arial", p.Runs[0].Attrs.FontName)
 }
 
 // C4.13 — Run color
 func TestOOXMLRunColor(t *testing.T) {
-	// TODO: fixture with colored text (e.g. red: R=255, G=0, B=0)
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(runXML(`<w:color w:val="FF0000"/>`, "x"))))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	require.GreaterOrEqual(t, len(p.Runs), 1)
-	assert.False(t, p.Runs[0].Attrs.Color.None, "color should not be None")
+	assert.Equal(t, ir.Color{R: 255, G: 0, B: 0}, p.Runs[0].Attrs.Color)
 }
 
 // C4.14 — Highlight color
 func TestOOXMLHighlightColor(t *testing.T) {
-	// TODO: fixture with highlighted text
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(runXML(`<w:highlight w:val="yellow"/>`, "x"))))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	require.GreaterOrEqual(t, len(p.Runs), 1)
-	assert.False(t, p.Runs[0].Attrs.Highlight.None, "highlight should not be None")
+	assert.Equal(t, ir.Color{R: 255, G: 255, B: 0}, p.Runs[0].Attrs.Highlight)
 }
 
 // C4.15 — Paragraph alignment (center)
 func TestOOXMLParagraphAlignCenter(t *testing.T) {
-	// TODO: fixture with center-aligned paragraph
-	doc, err := Parse(nil)
+	body := `<w:p><w:pPr><w:jc w:val="center"/></w:pPr>` + runXML("", "x") + `</w:p>`
+	doc, err := Parse(buildDocx(t, body))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
 	assert.Equal(t, ir.AlignCenter, p.Para.Align)
@@ -167,38 +139,40 @@ func TestOOXMLParagraphAlignCenter(t *testing.T) {
 
 // C4.16 — Paragraph spacing (before/after)
 func TestOOXMLParagraphSpacing(t *testing.T) {
-	// TODO: fixture with paragraph spacing
-	doc, err := Parse(nil)
+	body := `<w:p><w:pPr><w:spacing w:before="240" w:after="120" w:line="240" w:lineRule="auto"/></w:pPr>` + runXML("", "x") + `</w:p>`
+	doc, err := Parse(buildDocx(t, body))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	assert.Greater(t, p.Para.Spacing.Before, float64(0))
-	assert.Greater(t, p.Para.Spacing.After, float64(0))
+	assert.Equal(t, float64(12), p.Para.Spacing.Before) // 240 twips = 12 pt
+	assert.Equal(t, float64(6), p.Para.Spacing.After)
+	assert.Equal(t, ir.LineRuleAuto, p.Para.Spacing.LineRule)
 }
 
 // C4.17 — Paragraph indent (left, first-line)
 func TestOOXMLParagraphIndent(t *testing.T) {
-	// TODO: fixture with paragraph indent
-	doc, err := Parse(nil)
+	body := `<w:p><w:pPr><w:ind w:left="720" w:firstLine="240"/></w:pPr>` + runXML("", "x") + `</w:p>`
+	doc, err := Parse(buildDocx(t, body))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	assert.Greater(t, p.Para.Indent.Left, float64(0))
-	assert.Greater(t, p.Para.Indent.FirstLine, float64(0))
+	assert.Equal(t, float64(36), p.Para.Indent.Left) // 720 twips = 36 pt
+	assert.Equal(t, float64(12), p.Para.Indent.FirstLine)
 }
 
 // C4.18 — Tab stops
 func TestOOXMLTabStops(t *testing.T) {
-	// TODO: fixture with custom tab stops
-	doc, err := Parse(nil)
+	body := `<w:p><w:pPr><w:tabs><w:tab w:val="left" w:pos="2160" w:leader="dot"/></w:tabs></w:pPr>` + runXML("", "x") + `</w:p>`
+	doc, err := Parse(buildDocx(t, body))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	require.GreaterOrEqual(t, len(p.Para.TabStops), 1)
-	assert.Greater(t, p.Para.TabStops[0].Position, float64(0))
+	require.Len(t, p.Para.TabStops, 1)
+	assert.Equal(t, float64(108), p.Para.TabStops[0].Position) // 2160 twips = 108 pt
+	assert.Equal(t, ir.TabLeaderDot, p.Para.TabStops[0].Leader)
 }
 
 // C4.19 — KeepTogether / KeepWithNext
 func TestOOXMLKeepTogetherKeepWithNext(t *testing.T) {
-	// TODO: fixture with keep-together and keep-with-next
-	doc, err := Parse(nil)
+	body := `<w:p><w:pPr><w:keepLines/><w:keepNext/></w:pPr>` + runXML("", "x") + `</w:p>`
+	doc, err := Parse(buildDocx(t, body))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
 	assert.True(t, p.Para.KeepTogether)
@@ -207,8 +181,8 @@ func TestOOXMLKeepTogetherKeepWithNext(t *testing.T) {
 
 // C4.20 — PageBreakBefore
 func TestOOXMLPageBreakBefore(t *testing.T) {
-	// TODO: fixture with page-break-before paragraph
-	doc, err := Parse(nil)
+	body := `<w:p><w:pPr><w:pageBreakBefore/></w:pPr>` + runXML("", "x") + `</w:p>`
+	doc, err := Parse(buildDocx(t, body))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
 	assert.True(t, p.Para.PageBreakBefore)
@@ -266,50 +240,29 @@ func TestOOXMLHyperlinkBookmark(t *testing.T) {
 
 // C4.25 — Line break
 func TestOOXMLLineBreak(t *testing.T) {
-	// TODO: fixture with a line break inside a paragraph
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(`<w:r><w:br/></w:r>`)))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	var found bool
-	for _, r := range p.Runs {
-		if r.Break == ir.BreakLine {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "should find a run with BreakLine")
+	require.GreaterOrEqual(t, len(p.Runs), 1)
+	assert.Equal(t, ir.BreakLine, p.Runs[0].Break)
 }
 
 // C4.26 — Page break (inline)
 func TestOOXMLPageBreakInline(t *testing.T) {
-	// TODO: fixture with an inline page break
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(`<w:r><w:br w:type="page"/></w:r>`)))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	var found bool
-	for _, r := range p.Runs {
-		if r.Break == ir.BreakPage {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "should find a run with BreakPage")
+	require.GreaterOrEqual(t, len(p.Runs), 1)
+	assert.Equal(t, ir.BreakPage, p.Runs[0].Break)
 }
 
 // C4.27 — Column break
 func TestOOXMLColumnBreak(t *testing.T) {
-	// TODO: fixture with a column break
-	doc, err := Parse(nil)
+	doc, err := Parse(buildDocx(t, para(`<w:r><w:br w:type="column"/></w:r>`)))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
-	var found bool
-	for _, r := range p.Runs {
-		if r.Break == ir.BreakColumn {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "should find a run with BreakColumn")
+	require.GreaterOrEqual(t, len(p.Runs), 1)
+	assert.Equal(t, ir.BreakColumn, p.Runs[0].Break)
 }
 
 // C4.28 — Bullet list (numbering reference)
@@ -460,9 +413,7 @@ func TestOOXMLBookmark(t *testing.T) {
 // C5.1 — Nil input returns error
 func TestOOXMLNilInput(t *testing.T) {
 	doc, err := Parse(nil)
-	// Once implemented, nil input should produce a meaningful error.
-	// For now, ErrNotImplemented is returned.
-	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrEmptyInput)
 	assert.Nil(t, doc)
 }
 
@@ -517,17 +468,20 @@ func TestOOXMLUnknownElementIgnored(t *testing.T) {
 
 // C5.8 — Large document does not panic
 func TestOOXMLLargeDocumentNoPanic(t *testing.T) {
-	// TODO: fixture — large .docx (many paragraphs / tables)
-	// Ensure Parse does not panic even on big inputs.
+	var runs []string
+	for i := 0; i < 5000; i++ {
+		runs = append(runs, runXML("", "x"))
+	}
+	large := buildDocx(t, para(runs...))
 	assert.NotPanics(t, func() {
-		_, _ = Parse(nil)
+		_, _ = Parse(large)
 	})
 }
 
 // C5.9 — Paragraph ID uniqueness
 func TestOOXMLParagraphIDUniqueness(t *testing.T) {
-	// TODO: fixture — .docx with multiple paragraphs
-	doc, err := Parse(nil)
+	body := para(runXML("", "a")) + para(runXML("", "b")) + para(runXML("", "c"))
+	doc, err := Parse(buildDocx(t, body))
 	require.NoError(t, err)
 	require.NotNil(t, doc)
 	ids := make(map[string]bool)

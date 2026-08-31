@@ -6,5 +6,5 @@ package lean
 
 // Version returns the current semantic version of the lean engine.
 func Version() string {
-	return "0.1.0-dev"
+	return "0.1.0-alpha.1"
 }

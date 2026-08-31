@@ -2,12 +2,11 @@
 
 ## [Unreleased]
 
+## [0.1.0-alpha.1] - 2026-08-31
+
 ### Added
-- Project structure following Go conventions
-- IR type definitions (`pkg/ir/`) with JSON serialization
-- Style resolution with `basedOn` inheritance chain
-- Test suite: Cluster 0 (bootstrap) and Cluster 1 (IR fundamentals) — passing
-- Test suite: Cluster 2 (Markdown parser) — failing, awaiting implementation
-- CI workflow with build, vet, test, and lint steps
-- Architecture documentation (`ARCHITECTURE.md`)
-- Requirements and test specification (`SRS.md`)
+- Document representation with JSON serialization
+- Style resolution with inherited named styles
+- Early .docx parsing for text, paragraphs, tables, and nested tables
+- Build, vet, static analysis, and specification test workflows
+- Architecture and requirements documentation

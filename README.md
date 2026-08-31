@@ -2,10 +2,12 @@
 
 A lightweight, open-source document engine written in Go.
 
-Lean parses, transforms, and exports documents across formats through a single
-intermediate representation.
+Lean is building a shared document representation for parsing, transforming,
+and exporting standard document formats without binding an application to one editor.
 
-## What It Does
+## Direction
+
+Lean is working toward this architecture:
 
 ```
 Markdown ──┐                              ┌──→ Markdown
@@ -18,15 +20,13 @@ Plain text ─┘    └────────────────┘     
                  (edit, undo, redo)
 ```
 
-**Parsers** read Markdown, HTML, .docx, and plain text into the IR.
-ODT support is planned for v1.1.
-**Exporters** write the IR back out to any supported format.
-PDF, PNG, and SVG rendering is delegated to [Typst](https://typst.app).
+The first alpha includes the document representation and an early .docx parser.
+Markdown, HTML, export, editing, and rendering APIs are still under development.
 
 ## Quick Start
 
 ```bash
-go install github.com/lean-docs/lean/cmd/lean@latest
+go get github.com/lean-docs/lean@v0.1.0-alpha.1
 ```
 
 ## Building from Source
@@ -57,7 +57,8 @@ lean/
 
 ## Status
 
-Early development. See [CHANGELOG.md](CHANGELOG.md) for progress.
+Alpha software. The public API and document fidelity guarantees can change before v1.0.
+See [CHANGELOG.md](CHANGELOG.md) for the implemented scope.
 
 ## License
 

@@ -428,7 +428,11 @@ func numberingXML(definitions []ir.NumberingDef) string {
 		id := index + 1
 		content.WriteString(`<w:abstractNum w:abstractNumId="` + strconv.Itoa(id) + `">`)
 		for _, level := range definition.Levels {
-			content.WriteString(`<w:lvl w:ilvl="` + strconv.Itoa(level.Level) + `"><w:start w:val="1"/><w:numFmt w:val="` + numberFormat(level.Format) + `"/><w:lvlText w:val="` + escape(level.Text) + `"/></w:lvl>`)
+			start := level.Start
+			if start == 0 {
+				start = 1
+			}
+			content.WriteString(`<w:lvl w:ilvl="` + strconv.Itoa(level.Level) + `"><w:start w:val="` + strconv.Itoa(start) + `"/><w:numFmt w:val="` + numberFormat(level.Format) + `"/><w:lvlText w:val="` + escape(level.Text) + `"/></w:lvl>`)
 		}
 		content.WriteString(`</w:abstractNum><w:num w:numId="` + escape(definition.ID) + `"><w:abstractNumId w:val="` + strconv.Itoa(id) + `"/></w:num>`)
 	}
@@ -694,10 +698,20 @@ func breakType(value ir.BreakType) string {
 }
 func color(value ir.Color) string { return fmt.Sprintf("%02X%02X%02X", value.R, value.G, value.B) }
 func numberFormat(value ir.NumberFormat) string {
-	if value == ir.NumFormatDecimal {
+	switch value {
+	case ir.NumFormatDecimal:
 		return "decimal"
+	case ir.NumFormatLowerAlpha:
+		return "lowerLetter"
+	case ir.NumFormatUpperAlpha:
+		return "upperLetter"
+	case ir.NumFormatLowerRoman:
+		return "lowerRoman"
+	case ir.NumFormatUpperRoman:
+		return "upperRoman"
+	default:
+		return "bullet"
 	}
-	return "bullet"
 }
 
 const xmlDeclaration = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`

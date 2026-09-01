@@ -222,6 +222,44 @@ func TestSaveDOCXRoundTripsHyperlinks(t *testing.T) {
 	assert.Equal(t, "overview", paragraph.Runs[1].Hyperlink.Bookmark)
 }
 
+func TestOpenDOCXReadsNumberingDefinitions(t *testing.T) {
+	content, err := os.ReadFile("testdata/fixtures/ooxml/python-docx/num-having-numbering-part.docx")
+	require.NoError(t, err)
+	document, _, err := lean.OpenDOCX(content)
+	require.NoError(t, err)
+	assert.NotEmpty(t, document.Styles.Numbering)
+	assert.Equal(t, "1", document.Styles.Numbering[0].ID)
+	assert.Equal(t, ir.NumFormatBullet, document.Styles.Numbering[0].Levels[0].Format)
+}
+
+func TestSaveDOCXRoundTripsNumbering(t *testing.T) {
+	document := ir.NewDocument()
+	document.Styles.Numbering = []ir.NumberingDef{{
+		ID: "42",
+		Levels: []ir.NumberingLevel{
+			{Level: 0, Format: ir.NumFormatDecimal, Text: "%1.", Start: 3},
+			{Level: 1, Format: ir.NumFormatLowerAlpha, Text: "%2)", Start: 1},
+		},
+	}}
+	document.Sections[0].Blocks = []ir.Block{
+		&ir.Paragraph{ID: "p1", Numbering: &ir.NumberingRef{ID: "42", Level: 0}, Runs: []ir.Run{{Text: "Third item"}}},
+		&ir.Paragraph{ID: "p2", Numbering: &ir.NumberingRef{ID: "42", Level: 1}, Runs: []ir.Run{{Text: "Nested item"}}},
+	}
+
+	content, report, err := lean.SaveDOCX(document)
+	require.NoError(t, err)
+	assert.True(t, report.Editable)
+	reopened, reopenedReport, err := lean.OpenDOCX(content)
+	require.NoError(t, err)
+	assert.True(t, reopenedReport.Editable)
+	require.Len(t, reopened.Styles.Numbering, 1)
+	assert.Equal(t, document.Styles.Numbering, reopened.Styles.Numbering)
+	first := reopened.Sections[0].Blocks[0].(*ir.Paragraph)
+	second := reopened.Sections[0].Blocks[1].(*ir.Paragraph)
+	assert.Equal(t, &ir.NumberingRef{ID: "42", Level: 0}, first.Numbering)
+	assert.Equal(t, &ir.NumberingRef{ID: "42", Level: 1}, second.Numbering)
+}
+
 func floatPointer(value float64) *float64 {
 	return &value
 }

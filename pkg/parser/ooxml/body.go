@@ -72,6 +72,8 @@ type xmlHyperlink struct {
 }
 
 type xmlParaProps struct {
+	Style           *xmlValAttr `xml:"pStyle"`
+	Numbering       *xmlNumPr   `xml:"numPr"`
 	Align           *xmlValAttr `xml:"jc"`
 	Spacing         *xmlSpacing `xml:"spacing"`
 	Indent          *xmlIndent  `xml:"ind"`
@@ -83,6 +85,11 @@ type xmlParaProps struct {
 	Borders         *xmlBorders `xml:"pBdr"`
 	Shading         *xmlShading `xml:"shd"`
 	BiDi            *xmlToggle  `xml:"bidi"`
+}
+
+type xmlNumPr struct {
+	Level *xmlValAttr `xml:"ilvl"`
+	ID    *xmlValAttr `xml:"numId"`
 }
 
 type xmlSpacing struct {
@@ -445,6 +452,16 @@ func applySectionProps(section *ir.Section, properties *xmlSectionProps) {
 func convertParagraph(xp xmlParagraph, id string, context *parseCtx) *ir.Paragraph {
 	p := &ir.Paragraph{ID: id}
 	if xp.Props != nil {
+		if xp.Props.Style != nil {
+			p.Style = xp.Props.Style.Val
+		}
+		if xp.Props.Numbering != nil && xp.Props.Numbering.ID != nil {
+			level := 0
+			if xp.Props.Numbering.Level != nil {
+				level, _ = strconv.Atoi(xp.Props.Numbering.Level.Val)
+			}
+			p.Numbering = &ir.NumberingRef{ID: xp.Props.Numbering.ID.Val, Level: level}
+		}
 		applyParaProps(&p.Para, xp.Props)
 	}
 	for _, xr := range xp.Runs {

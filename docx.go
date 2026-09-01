@@ -81,7 +81,6 @@ func inspectDOCX(input []byte) (FidelityReport, error) {
 		}
 	}
 	markers := map[string]string{
-		"<w:numPr":   "numbering",
 		"<w:pStyle":  "styles",
 		"<w:sdt":     "content-controls",
 		"<w:fldChar": "fields",
@@ -188,9 +187,6 @@ func inspectDocument(document *ir.Document) FidelityReport {
 	if len(document.Styles.Named) > 0 {
 		report.addUnsupported("styles")
 	}
-	if len(document.Styles.Numbering) > 0 {
-		report.addUnsupported("numbering")
-	}
 	for _, section := range document.Sections {
 		if len(section.Columns) > 0 {
 			report.addUnsupported("page-columns")
@@ -220,9 +216,6 @@ func walkDocumentBlocks(blocks []ir.Block, report *FidelityReport) {
 		case *ir.Paragraph:
 			if value.Style != "" {
 				report.addUnsupported("styles")
-			}
-			if value.Numbering != nil {
-				report.addUnsupported("numbering")
 			}
 			if len(value.Footnotes) > 0 {
 				report.addUnsupported("footnotes")

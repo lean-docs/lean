@@ -49,6 +49,13 @@ func Parse(input []byte) (*ir.Document, error) {
 	} else if len(coreXML) > 0 {
 		parseCoreProperties(coreXML, doc)
 	}
+	if numberingXML, numberingErr := readOptionalEntry(r, "word/numbering.xml"); numberingErr != nil {
+		return nil, numberingErr
+	} else if len(numberingXML) > 0 {
+		if err := parseNumbering(numberingXML, doc); err != nil {
+			return nil, fmt.Errorf("ooxml: parse numbering: %w", err)
+		}
+	}
 	doc.Sections = doc.Sections[:0]
 	images, hyperlinks, err := readRelationships(r)
 	if err != nil {

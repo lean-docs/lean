@@ -60,3 +60,96 @@ func TestSaveDOCXRefusesUnsupportedFeatures(t *testing.T) {
 	assert.Nil(t, content)
 	assert.Contains(t, report.Unsupported, "images")
 }
+
+func TestSaveDOCXRoundTripsMVPFormatting(t *testing.T) {
+	document := ir.NewDocument()
+	document.Sections[0].Properties.Orientation = ir.Landscape
+	document.Sections[0].Properties.Width = 792
+	document.Sections[0].Properties.Height = 612
+	document.Sections[0].Blocks = []ir.Block{
+		&ir.Paragraph{
+			ID: "p1",
+			Para: ir.ParaAttrs{
+				OutlineLevel: 2,
+				Borders:      ir.ParaBorders{Bottom: ir.Border{Style: "single", Width: 1, Color: ir.Color{R: 25, G: 50, B: 75}}},
+				Shading:      ir.Color{R: 240, G: 241, B: 242},
+				BiDi:         true,
+			},
+			Runs: []ir.Run{{
+				Text: "Formatted",
+				Attrs: ir.RunAttrs{
+					Highlight: ir.Color{R: 255, G: 255, B: 0},
+					Tracking:  1.5,
+					Language:  "fr-CM",
+				},
+			}},
+		},
+		&ir.Table{
+			ID:      "t1",
+			Align:   ir.AlignCenter,
+			Borders: ir.TableBorders{InsideH: ir.Border{Style: "single", Width: 0.5, Color: ir.Color{R: 10, G: 20, B: 30}}},
+			Shading: ir.Color{R: 245, G: 246, B: 247},
+			Rows: []ir.TableRow{{
+				IsHeader: true,
+				Height:   floatPointer(24),
+				Cells: []ir.TableCell{{
+					ColSpan: 1,
+					RowSpan: 1,
+					VAlign:  ir.VAlignCenter,
+					Borders: ir.CellBorders{Left: ir.Border{Style: "single", Width: 0.75, Color: ir.Color{R: 40, G: 50, B: 60}}},
+					Shading: ir.Color{R: 230, G: 231, B: 232},
+					Padding: ir.Padding{Top: 4, Right: 5, Bottom: 6, Left: 7},
+					Blocks:  []ir.Block{&ir.Paragraph{ID: "p2", Runs: []ir.Run{{Text: "Cell"}}}},
+				}},
+			}},
+		},
+	}
+
+	content, report, err := lean.SaveDOCX(document)
+	require.NoError(t, err)
+	assert.True(t, report.Editable)
+	reopened, reopenedReport, err := lean.OpenDOCX(content)
+	require.NoError(t, err)
+	assert.True(t, reopenedReport.Editable)
+	assert.Empty(t, reopenedReport.Unsupported)
+	assert.Equal(t, ir.Landscape, reopened.Sections[0].Properties.Orientation)
+
+	paragraph := reopened.Sections[0].Blocks[0].(*ir.Paragraph)
+	assert.Equal(t, 2, paragraph.Para.OutlineLevel)
+	assert.Equal(t, document.Sections[0].Blocks[0].(*ir.Paragraph).Para.Borders, paragraph.Para.Borders)
+	assert.Equal(t, ir.Color{R: 240, G: 241, B: 242}, paragraph.Para.Shading)
+	assert.True(t, paragraph.Para.BiDi)
+	assert.Equal(t, ir.Color{R: 255, G: 255, B: 0}, paragraph.Runs[0].Attrs.Highlight)
+	assert.Equal(t, 1.5, paragraph.Runs[0].Attrs.Tracking)
+	assert.Equal(t, "fr-CM", paragraph.Runs[0].Attrs.Language)
+
+	table := reopened.Sections[0].Blocks[1].(*ir.Table)
+	assert.Equal(t, ir.AlignCenter, table.Align)
+	assert.Equal(t, document.Sections[0].Blocks[1].(*ir.Table).Borders, table.Borders)
+	assert.Equal(t, ir.Color{R: 245, G: 246, B: 247}, table.Shading)
+	assert.True(t, table.Rows[0].IsHeader)
+	require.NotNil(t, table.Rows[0].Height)
+	assert.Equal(t, 24.0, *table.Rows[0].Height)
+	cell := table.Rows[0].Cells[0]
+	assert.Equal(t, ir.VAlignCenter, cell.VAlign)
+	assert.Equal(t, document.Sections[0].Blocks[1].(*ir.Table).Rows[0].Cells[0].Borders, cell.Borders)
+	assert.Equal(t, ir.Color{R: 230, G: 231, B: 232}, cell.Shading)
+	assert.Equal(t, ir.Padding{Top: 4, Right: 5, Bottom: 6, Left: 7}, cell.Padding)
+}
+
+func TestSaveDOCXRejectsUnsupportedHighlightColor(t *testing.T) {
+	document := ir.NewDocument()
+	document.Sections[0].Blocks = []ir.Block{&ir.Paragraph{
+		ID:   "p1",
+		Runs: []ir.Run{{Text: "Custom highlight", Attrs: ir.RunAttrs{Highlight: ir.Color{R: 1, G: 2, B: 3}}}},
+	}}
+
+	content, report, err := lean.SaveDOCX(document)
+	assert.ErrorIs(t, err, lean.ErrUnsupportedDocument)
+	assert.Nil(t, content)
+	assert.Contains(t, report.Unsupported, "highlighting")
+}
+
+func floatPointer(value float64) *float64 {
+	return &value
+}

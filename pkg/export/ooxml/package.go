@@ -151,7 +151,7 @@ func writeParagraphProperties(output *strings.Builder, paragraph *ir.Paragraph) 
 		output.WriteString(`<w:jc w:val="` + alignment(attrs.Align) + `"/>`)
 	}
 	if attrs.Spacing != (ir.Spacing{}) {
-		output.WriteString(`<w:spacing w:before="` + twips(attrs.Spacing.Before) + `" w:after="` + twips(attrs.Spacing.After) + `" w:line="` + twips(attrs.Spacing.Line) + `"/>`)
+		output.WriteString(`<w:spacing w:before="` + twips(attrs.Spacing.Before) + `" w:after="` + twips(attrs.Spacing.After) + `" w:line="` + twips(attrs.Spacing.Line) + `" w:lineRule="` + lineRule(attrs.Spacing.LineRule) + `"/>`)
 	}
 	if attrs.Indent != (ir.Indent{}) {
 		output.WriteString(`<w:ind w:left="` + twips(attrs.Indent.Left) + `" w:right="` + twips(attrs.Indent.Right) + `" w:firstLine="` + twips(attrs.Indent.FirstLine) + `" w:hanging="` + twips(attrs.Indent.Hanging) + `"/>`)
@@ -172,11 +172,21 @@ func writeParagraphProperties(output *strings.Builder, paragraph *ir.Paragraph) 
 	if attrs.PageBreakBefore {
 		output.WriteString("<w:pageBreakBefore/>")
 	}
+	if attrs.OutlineLevel > 0 {
+		output.WriteString(`<w:outlineLvl w:val="` + strconv.Itoa(attrs.OutlineLevel) + `"/>`)
+	}
+	writeParagraphBorders(output, attrs.Borders)
+	if attrs.Shading != (ir.Color{}) {
+		output.WriteString(`<w:shd w:val="clear" w:fill="` + color(attrs.Shading) + `"/>`)
+	}
+	if attrs.BiDi {
+		output.WriteString("<w:bidi/>")
+	}
 	output.WriteString("</w:pPr>")
 }
 
 func hasParagraphProperties(attrs ir.ParaAttrs) bool {
-	return attrs.Align != ir.AlignLeft || attrs.Spacing != (ir.Spacing{}) || attrs.Indent != (ir.Indent{}) || len(attrs.TabStops) > 0 || attrs.KeepTogether || attrs.KeepWithNext || attrs.PageBreakBefore
+	return attrs.Align != ir.AlignLeft || attrs.Spacing != (ir.Spacing{}) || attrs.Indent != (ir.Indent{}) || len(attrs.TabStops) > 0 || attrs.KeepTogether || attrs.KeepWithNext || attrs.PageBreakBefore || attrs.OutlineLevel > 0 || attrs.Borders != (ir.ParaBorders{}) || attrs.Shading != (ir.Color{}) || attrs.BiDi
 }
 
 func writeRun(output *strings.Builder, run ir.Run) {
@@ -226,11 +236,34 @@ func writeRunProperties(output *strings.Builder, attrs ir.RunAttrs) {
 	if attrs.Baseline != ir.BaselineNone {
 		output.WriteString(`<w:vertAlign w:val="` + baseline(attrs.Baseline) + `"/>`)
 	}
+	if attrs.Highlight != (ir.Color{}) {
+		output.WriteString(`<w:highlight w:val="` + highlight(attrs.Highlight) + `"/>`)
+	}
+	if attrs.Tracking != 0 {
+		output.WriteString(`<w:spacing w:val="` + strconv.FormatInt(int64(attrs.Tracking*20), 10) + `"/>`)
+	}
+	if attrs.Language != "" {
+		output.WriteString(`<w:lang w:val="` + escape(attrs.Language) + `"/>`)
+	}
 	output.WriteString("</w:rPr>")
 }
 
 func writeTable(output *strings.Builder, table *ir.Table, imageIndex *int) {
 	output.WriteString("<w:tbl>")
+	if table.Style != "" || table.Align != ir.AlignLeft || table.Borders != (ir.TableBorders{}) || table.Shading != (ir.Color{}) {
+		output.WriteString("<w:tblPr>")
+		if table.Style != "" {
+			output.WriteString(`<w:tblStyle w:val="` + escape(table.Style) + `"/>`)
+		}
+		if table.Align != ir.AlignLeft {
+			output.WriteString(`<w:jc w:val="` + alignment(table.Align) + `"/>`)
+		}
+		writeTableBorders(output, table.Borders)
+		if table.Shading != (ir.Color{}) {
+			output.WriteString(`<w:shd w:val="clear" w:fill="` + color(table.Shading) + `"/>`)
+		}
+		output.WriteString("</w:tblPr>")
+	}
 	if len(table.ColumnWidths) > 0 {
 		output.WriteString("<w:tblGrid>")
 		for _, width := range table.ColumnWidths {
@@ -240,9 +273,19 @@ func writeTable(output *strings.Builder, table *ir.Table, imageIndex *int) {
 	}
 	for _, row := range table.Rows {
 		output.WriteString("<w:tr>")
+		if row.IsHeader || row.Height != nil {
+			output.WriteString("<w:trPr>")
+			if row.IsHeader {
+				output.WriteString("<w:tblHeader/>")
+			}
+			if row.Height != nil {
+				output.WriteString(`<w:trHeight w:val="` + twips(*row.Height) + `"/>`)
+			}
+			output.WriteString("</w:trPr>")
+		}
 		for _, cell := range row.Cells {
 			output.WriteString("<w:tc>")
-			if cell.ColSpan > 1 || cell.Width > 0 {
+			if cell.ColSpan > 1 || cell.Width > 0 || cell.VAlign != ir.VAlignTop || cell.Borders != (ir.CellBorders{}) || cell.Shading != (ir.Color{}) || cell.Padding != (ir.Padding{}) {
 				output.WriteString("<w:tcPr>")
 				if cell.Width > 0 {
 					output.WriteString(`<w:tcW w:w="` + twips(cell.Width) + `" w:type="dxa"/>`)
@@ -250,6 +293,14 @@ func writeTable(output *strings.Builder, table *ir.Table, imageIndex *int) {
 				if cell.ColSpan > 1 {
 					output.WriteString(`<w:gridSpan w:val="` + strconv.Itoa(cell.ColSpan) + `"/>`)
 				}
+				if cell.VAlign != ir.VAlignTop {
+					output.WriteString(`<w:vAlign w:val="` + verticalAlignment(cell.VAlign) + `"/>`)
+				}
+				writeCellBorders(output, cell.Borders)
+				if cell.Shading != (ir.Color{}) {
+					output.WriteString(`<w:shd w:val="clear" w:fill="` + color(cell.Shading) + `"/>`)
+				}
+				writeCellPadding(output, cell.Padding)
 				output.WriteString("</w:tcPr>")
 			}
 			for _, block := range cell.Blocks {
@@ -287,7 +338,11 @@ func writeSectionProperties(output *strings.Builder, section ir.Section, header,
 	}
 	properties := section.Properties
 	if properties.Width > 0 || properties.Height > 0 {
-		output.WriteString(`<w:pgSz w:w="` + twips(properties.Width) + `" w:h="` + twips(properties.Height) + `"/>`)
+		orientation := ""
+		if properties.Orientation == ir.Landscape {
+			orientation = ` w:orient="landscape"`
+		}
+		output.WriteString(`<w:pgSz w:w="` + twips(properties.Width) + `" w:h="` + twips(properties.Height) + `"` + orientation + `/>`)
 	}
 	output.WriteString(`<w:pgMar w:top="` + twips(properties.MarginTop) + `" w:right="` + twips(properties.MarginRight) + `" w:bottom="` + twips(properties.MarginBottom) + `" w:left="` + twips(properties.MarginLeft) + `"/>`)
 	output.WriteString("</w:sectPr>")
@@ -488,6 +543,112 @@ func baseline(value ir.BaselineShift) string {
 		return "subscript"
 	}
 	return "superscript"
+}
+func lineRule(value ir.LineRule) string {
+	if value == ir.LineRuleExact {
+		return "exact"
+	}
+	if value == ir.LineRuleAtLeast {
+		return "atLeast"
+	}
+	return "auto"
+}
+func verticalAlignment(value ir.VAlignment) string {
+	if value == ir.VAlignCenter {
+		return "center"
+	}
+	if value == ir.VAlignBottom {
+		return "bottom"
+	}
+	return "top"
+}
+func highlight(value ir.Color) string {
+	colors := map[ir.Color]string{
+		{R: 255, G: 255, B: 0}:   "yellow",
+		{R: 0, G: 255, B: 0}:     "green",
+		{R: 0, G: 255, B: 255}:   "cyan",
+		{R: 255, G: 0, B: 255}:   "magenta",
+		{R: 0, G: 0, B: 255}:     "blue",
+		{R: 255, G: 0, B: 0}:     "red",
+		{R: 0, G: 0, B: 0}:       "black",
+		{R: 255, G: 255, B: 255}: "white",
+		{R: 0, G: 0, B: 139}:     "darkBlue",
+		{R: 0, G: 139, B: 139}:   "darkCyan",
+		{R: 0, G: 100, B: 0}:     "darkGreen",
+		{R: 139, G: 0, B: 139}:   "darkMagenta",
+		{R: 139, G: 0, B: 0}:     "darkRed",
+		{R: 128, G: 128, B: 0}:   "darkYellow",
+		{R: 169, G: 169, B: 169}: "darkGray",
+		{R: 211, G: 211, B: 211}: "lightGray",
+	}
+	if name, ok := colors[value]; ok {
+		return name
+	}
+	return "yellow"
+}
+func writeParagraphBorders(output *strings.Builder, borders ir.ParaBorders) {
+	if borders == (ir.ParaBorders{}) {
+		return
+	}
+	output.WriteString("<w:pBdr>")
+	writeBorder(output, "top", borders.Top)
+	writeBorder(output, "bottom", borders.Bottom)
+	writeBorder(output, "left", borders.Left)
+	writeBorder(output, "right", borders.Right)
+	output.WriteString("</w:pBdr>")
+}
+func writeTableBorders(output *strings.Builder, borders ir.TableBorders) {
+	if borders == (ir.TableBorders{}) {
+		return
+	}
+	output.WriteString("<w:tblBorders>")
+	writeBorder(output, "top", borders.Top)
+	writeBorder(output, "bottom", borders.Bottom)
+	writeBorder(output, "left", borders.Left)
+	writeBorder(output, "right", borders.Right)
+	writeBorder(output, "insideH", borders.InsideH)
+	writeBorder(output, "insideV", borders.InsideV)
+	output.WriteString("</w:tblBorders>")
+}
+func writeCellBorders(output *strings.Builder, borders ir.CellBorders) {
+	if borders == (ir.CellBorders{}) {
+		return
+	}
+	output.WriteString("<w:tcBorders>")
+	writeBorder(output, "top", borders.Top)
+	writeBorder(output, "bottom", borders.Bottom)
+	writeBorder(output, "left", borders.Left)
+	writeBorder(output, "right", borders.Right)
+	output.WriteString("</w:tcBorders>")
+}
+func writeBorder(output *strings.Builder, edge string, border ir.Border) {
+	if border == (ir.Border{}) {
+		return
+	}
+	style := border.Style
+	if style == "" {
+		style = "single"
+	}
+	width := border.Width * 8
+	if width == 0 {
+		width = 4
+	}
+	output.WriteString(`<w:` + edge + ` w:val="` + escape(style) + `" w:sz="` + strconv.FormatFloat(width, 'f', -1, 64) + `" w:color="` + color(border.Color) + `"/>`)
+}
+func writeCellPadding(output *strings.Builder, padding ir.Padding) {
+	if padding == (ir.Padding{}) {
+		return
+	}
+	output.WriteString("<w:tcMar>")
+	for _, edge := range []struct {
+		name  string
+		value float64
+	}{{"top", padding.Top}, {"bottom", padding.Bottom}, {"left", padding.Left}, {"right", padding.Right}} {
+		if edge.value > 0 {
+			output.WriteString(`<w:` + edge.name + ` w:w="` + twips(edge.value) + `" w:type="dxa"/>`)
+		}
+	}
+	output.WriteString("</w:tcMar>")
 }
 func breakType(value ir.BreakType) string {
 	if value == ir.BreakPage {

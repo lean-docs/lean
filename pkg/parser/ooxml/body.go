@@ -29,6 +29,10 @@ type xmlParaProps struct {
 	KeepLines       *xmlToggle  `xml:"keepLines"`
 	KeepNext        *xmlToggle  `xml:"keepNext"`
 	PageBreakBefore *xmlToggle  `xml:"pageBreakBefore"`
+	OutlineLevel    *xmlValAttr `xml:"outlineLvl"`
+	Borders         *xmlBorders `xml:"pBdr"`
+	Shading         *xmlShading `xml:"shd"`
+	BiDi            *xmlToggle  `xml:"bidi"`
 }
 
 type xmlSpacing struct {
@@ -82,6 +86,8 @@ type xmlRunProps struct {
 	Fonts     *xmlRunFonts `xml:"rFonts"`
 	Color     *xmlValAttr  `xml:"color"`
 	Highlight *xmlValAttr  `xml:"highlight"`
+	Spacing   *xmlValAttr  `xml:"spacing"`
+	Language  *xmlValAttr  `xml:"lang"`
 }
 
 type xmlToggle struct {
@@ -101,16 +107,16 @@ type xmlRunFonts struct {
 // --- table ---
 
 type xmlTable struct {
-	Props *xmlTblProps `xml:"tblPr"`
-	Grid  *xmlTblGrid  `xml:"tblGrid"`
+	Props *xmlTblProps  `xml:"tblPr"`
+	Grid  *xmlTblGrid   `xml:"tblGrid"`
 	Rows  []xmlTableRow `xml:"tr"`
 }
 
 type xmlTblProps struct {
-	Style   *xmlValAttr  `xml:"tblStyle"`
-	Align   *xmlValAttr  `xml:"jc"`
-	Borders *xmlBorders  `xml:"tblBorders"`
-	Shading *xmlShading  `xml:"shd"`
+	Style   *xmlValAttr `xml:"tblStyle"`
+	Align   *xmlValAttr `xml:"jc"`
+	Borders *xmlBorders `xml:"tblBorders"`
+	Shading *xmlShading `xml:"shd"`
 }
 
 type xmlTblGrid struct {
@@ -122,20 +128,20 @@ type xmlGridCol struct {
 }
 
 type xmlTableRow struct {
-	Props *xmlRowProps  `xml:"trPr"`
+	Props *xmlRowProps   `xml:"trPr"`
 	Cells []xmlTableCell `xml:"tc"`
 }
 
 type xmlRowProps struct {
-	Header *xmlToggle   `xml:"tblHeader"`
-	Height *xmlValAttr  `xml:"trHeight"`
+	Header *xmlToggle  `xml:"tblHeader"`
+	Height *xmlValAttr `xml:"trHeight"`
 }
 
 type xmlTableCell struct {
 	Props      *xmlCellProps  `xml:"tcPr"`
 	Paragraphs []xmlParagraph `xml:"p"`
 	// nested tables parsed via custom UnmarshalXML on xmlTableCell
-	Tables     []xmlTable     `xml:"tbl"`
+	Tables []xmlTable `xml:"tbl"`
 }
 
 type xmlCellProps struct {
@@ -189,6 +195,24 @@ type xmlMarEdge struct {
 	W string `xml:"w,attr"`
 }
 
+type xmlSectionProps struct {
+	Size    *xmlPageSize    `xml:"pgSz"`
+	Margins *xmlPageMargins `xml:"pgMar"`
+}
+
+type xmlPageSize struct {
+	Width       string `xml:"w,attr"`
+	Height      string `xml:"h,attr"`
+	Orientation string `xml:"orient,attr"`
+}
+
+type xmlPageMargins struct {
+	Top    string `xml:"top,attr"`
+	Right  string `xml:"right,attr"`
+	Bottom string `xml:"bottom,attr"`
+	Left   string `xml:"left,attr"`
+}
+
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
@@ -207,7 +231,7 @@ func parseDocument(xmlBytes []byte, doc *ir.Document) error {
 	}
 
 	section := ir.Section{}
-	ctx := &parseCtx{}
+	ctx := &parseCtx{section: &section}
 	if err := parseBlocks(dec, "body", &section.Blocks, ctx); err != nil {
 		return err
 	}
@@ -219,6 +243,7 @@ func parseDocument(xmlBytes []byte, doc *ir.Document) error {
 type parseCtx struct {
 	paraSeq  int
 	tableSeq int
+	section  *ir.Section
 }
 
 func (c *parseCtx) nextParaID() string {
@@ -273,6 +298,12 @@ func parseBlocks(dec *xml.Decoder, parentLocal string, blocks *[]ir.Block, ctx *
 					return err
 				}
 				*blocks = append(*blocks, convertTable(xt, ctx))
+			case "sectPr":
+				var properties xmlSectionProps
+				if err := dec.DecodeElement(&properties, &t); err != nil {
+					return err
+				}
+				applySectionProps(ctx.section, &properties)
 			default:
 				if err := dec.Skip(); err != nil {
 					return err
@@ -283,6 +314,25 @@ func parseBlocks(dec *xml.Decoder, parentLocal string, blocks *[]ir.Block, ctx *
 				return nil
 			}
 		}
+	}
+}
+
+func applySectionProps(section *ir.Section, properties *xmlSectionProps) {
+	if section == nil || properties == nil {
+		return
+	}
+	if properties.Size != nil {
+		section.Properties.Width = twipAttr(properties.Size.Width)
+		section.Properties.Height = twipAttr(properties.Size.Height)
+		if properties.Size.Orientation == "landscape" {
+			section.Properties.Orientation = ir.Landscape
+		}
+	}
+	if properties.Margins != nil {
+		section.Properties.MarginTop = twipAttr(properties.Margins.Top)
+		section.Properties.MarginRight = twipAttr(properties.Margins.Right)
+		section.Properties.MarginBottom = twipAttr(properties.Margins.Bottom)
+		section.Properties.MarginLeft = twipAttr(properties.Margins.Left)
 	}
 }
 
@@ -367,6 +417,14 @@ func applyRunProps(a *ir.RunAttrs, p *xmlRunProps) {
 	if p.Highlight != nil && p.Highlight.Val != "" {
 		a.Highlight = highlightFromName(p.Highlight.Val)
 	}
+	if p.Spacing != nil {
+		if twentieths, err := strconv.ParseFloat(p.Spacing.Val, 64); err == nil {
+			a.Tracking = twentieths / 20
+		}
+	}
+	if p.Language != nil {
+		a.Language = p.Language.Val
+	}
 }
 
 func applyParaProps(a *ir.ParaAttrs, p *xmlParaProps) {
@@ -402,6 +460,25 @@ func applyParaProps(a *ir.ParaAttrs, p *xmlParaProps) {
 	}
 	if toggleOn(p.PageBreakBefore) {
 		a.PageBreakBefore = true
+	}
+	if p.OutlineLevel != nil {
+		if level, err := strconv.Atoi(p.OutlineLevel.Val); err == nil {
+			a.OutlineLevel = level
+		}
+	}
+	if p.Borders != nil {
+		a.Borders.Top = borderFrom(p.Borders.Top)
+		a.Borders.Bottom = borderFrom(p.Borders.Bottom)
+		a.Borders.Left = borderFrom(p.Borders.Left)
+		a.Borders.Right = borderFrom(p.Borders.Right)
+	}
+	if p.Shading != nil {
+		if color, ok := parseHexColor(p.Shading.Fill); ok {
+			a.Shading = color
+		}
+	}
+	if toggleOn(p.BiDi) {
+		a.BiDi = true
 	}
 }
 

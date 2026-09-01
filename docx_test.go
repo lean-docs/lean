@@ -22,13 +22,16 @@ func TestOpenDOCXReportsSupportedCorpusFeatures(t *testing.T) {
 	assert.NotEmpty(t, document.Meta.Author)
 }
 
-func TestOpenDOCXRejectsLossyImageEditing(t *testing.T) {
+func TestOpenDOCXPreservesImageWhileReportingOtherUnsupportedFeatures(t *testing.T) {
 	content, err := os.ReadFile("testdata/fixtures/ooxml/python-docx/having-images.docx")
 	require.NoError(t, err)
-	_, report, err := lean.OpenDOCX(content)
+	document, report, err := lean.OpenDOCX(content)
 	require.NoError(t, err)
 	assert.False(t, report.Editable)
-	assert.Contains(t, report.Unsupported, "images")
+	assert.NotContains(t, report.Unsupported, "images")
+	assert.Contains(t, report.Unsupported, "headers")
+	assert.Contains(t, report.Unsupported, "footnotes")
+	assert.True(t, documentHasImage(document))
 }
 
 func TestSaveDOCXRoundTripsSupportedDocument(t *testing.T) {
@@ -150,6 +153,43 @@ func TestSaveDOCXRejectsUnsupportedHighlightColor(t *testing.T) {
 	assert.Contains(t, report.Unsupported, "highlighting")
 }
 
+func TestSaveDOCXRoundTripsEmbeddedImage(t *testing.T) {
+	document := ir.NewDocument()
+	document.Sections[0].Blocks = []ir.Block{&ir.Image{
+		ID:     "image1",
+		Data:   []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a},
+		Format: ir.ImagePNG,
+		Width:  200,
+		Height: 100,
+		Alt:    "Quarterly revenue chart",
+	}}
+
+	content, report, err := lean.SaveDOCX(document)
+	require.NoError(t, err)
+	assert.True(t, report.Editable)
+	reopened, reopenedReport, err := lean.OpenDOCX(content)
+	require.NoError(t, err)
+	assert.True(t, reopenedReport.Editable)
+	require.Len(t, reopened.Sections[0].Blocks, 1)
+	image := reopened.Sections[0].Blocks[0].(*ir.Image)
+	assert.Equal(t, document.Sections[0].Blocks[0].(*ir.Image).Data, image.Data)
+	assert.Equal(t, ir.ImagePNG, image.Format)
+	assert.Equal(t, 200.0, image.Width)
+	assert.Equal(t, 100.0, image.Height)
+	assert.Equal(t, "Quarterly revenue chart", image.Alt)
+}
+
 func floatPointer(value float64) *float64 {
 	return &value
+}
+
+func documentHasImage(document *ir.Document) bool {
+	for _, section := range document.Sections {
+		for _, block := range section.Blocks {
+			if _, ok := block.(*ir.Image); ok {
+				return true
+			}
+		}
+	}
+	return false
 }

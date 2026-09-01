@@ -15,6 +15,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
+	"strings"
 
 	"github.com/lean-docs/lean/pkg/ir"
 )
@@ -48,13 +50,67 @@ func Parse(input []byte) (*ir.Document, error) {
 		parseCoreProperties(coreXML, doc)
 	}
 	doc.Sections = doc.Sections[:0]
-	if err := parseDocument(docXML, doc); err != nil {
+	images, err := readImages(r)
+	if err != nil {
+		return nil, err
+	}
+	if err := parseDocument(docXML, doc, images); err != nil {
 		return nil, err
 	}
 	if len(doc.Sections) == 0 {
 		doc.Sections = append(doc.Sections, ir.Section{})
 	}
 	return doc, nil
+}
+
+type xmlRelationships struct {
+	Relationships []xmlRelationship `xml:"Relationship"`
+}
+
+type xmlRelationship struct {
+	ID     string `xml:"Id,attr"`
+	Type   string `xml:"Type,attr"`
+	Target string `xml:"Target,attr"`
+}
+
+func readImages(reader *zip.Reader) (map[string]imageResource, error) {
+	content, err := readOptionalEntry(reader, "word/_rels/document.xml.rels")
+	if err != nil || len(content) == 0 {
+		return nil, err
+	}
+	var relationships xmlRelationships
+	if err := xml.Unmarshal(content, &relationships); err != nil {
+		return nil, fmt.Errorf("ooxml: parse document relationships: %w", err)
+	}
+	images := make(map[string]imageResource)
+	for _, relationship := range relationships.Relationships {
+		if !strings.HasSuffix(relationship.Type, "/image") {
+			continue
+		}
+		target := path.Clean(path.Join("word", relationship.Target))
+		data, readErr := readOptionalEntry(reader, target)
+		if readErr != nil {
+			return nil, readErr
+		}
+		if len(data) == 0 {
+			continue
+		}
+		images[relationship.ID] = imageResource{Data: data, Format: imageFormat(target)}
+	}
+	return images, nil
+}
+
+func imageFormat(name string) ir.ImageFormat {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".jpg", ".jpeg":
+		return ir.ImageJPEG
+	case ".gif":
+		return ir.ImageGIF
+	case ".svg":
+		return ir.ImageSVG
+	default:
+		return ir.ImagePNG
+	}
 }
 
 func readOptionalEntry(r *zip.Reader, name string) ([]byte, error) {

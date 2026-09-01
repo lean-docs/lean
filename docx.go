@@ -81,7 +81,6 @@ func inspectDOCX(input []byte) (FidelityReport, error) {
 		}
 	}
 	markers := map[string]string{
-		"<w:drawing":   "images",
 		"<w:hyperlink": "hyperlinks",
 		"<w:numPr":     "numbering",
 		"<w:pStyle":    "styles",
@@ -214,7 +213,9 @@ func walkDocumentBlocks(blocks []ir.Block, report *FidelityReport) {
 	for _, block := range blocks {
 		switch value := block.(type) {
 		case *ir.Image:
-			report.addUnsupported("images")
+			if len(value.Data) == 0 || value.Width <= 0 || value.Height <= 0 {
+				report.addUnsupported("images")
+			}
 		case *ir.Bookmark:
 			report.addUnsupported("bookmarks")
 		case *ir.Paragraph:

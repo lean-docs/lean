@@ -60,9 +60,50 @@ type xmlTab struct {
 }
 
 type xmlRun struct {
-	Props  *xmlRunProps `xml:"rPr"`
-	Text   []xmlText    `xml:"t"`
-	Breaks []xmlBreak   `xml:"br"`
+	Props    *xmlRunProps `xml:"rPr"`
+	Text     []xmlText    `xml:"t"`
+	Breaks   []xmlBreak   `xml:"br"`
+	Drawings []xmlDrawing `xml:"drawing"`
+}
+
+type xmlDrawing struct {
+	Inline *xmlDrawingContainer `xml:"inline"`
+	Anchor *xmlDrawingContainer `xml:"anchor"`
+}
+
+type xmlDrawingContainer struct {
+	Extent  *xmlExtent `xml:"extent"`
+	DocPr   *xmlDocPr  `xml:"docPr"`
+	Graphic xmlGraphic `xml:"graphic"`
+}
+
+type xmlExtent struct {
+	CX string `xml:"cx,attr"`
+	CY string `xml:"cy,attr"`
+}
+
+type xmlDocPr struct {
+	Description string `xml:"descr,attr"`
+}
+
+type xmlGraphic struct {
+	Data xmlGraphicData `xml:"graphicData"`
+}
+
+type xmlGraphicData struct {
+	Picture xmlPicture `xml:"pic"`
+}
+
+type xmlPicture struct {
+	BlipFill xmlBlipFill `xml:"blipFill"`
+}
+
+type xmlBlipFill struct {
+	Blip xmlBlip `xml:"blip"`
+}
+
+type xmlBlip struct {
+	Embed string `xml:"embed,attr"`
 }
 
 type xmlBreak struct {
@@ -213,6 +254,11 @@ type xmlPageMargins struct {
 	Left   string `xml:"left,attr"`
 }
 
+type imageResource struct {
+	Data   []byte
+	Format ir.ImageFormat
+}
+
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
@@ -221,7 +267,7 @@ type xmlPageMargins struct {
 // Body children (w:p, w:tbl) are handled in order; unknown elements skipped.
 const wNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
-func parseDocument(xmlBytes []byte, doc *ir.Document) error {
+func parseDocument(xmlBytes []byte, doc *ir.Document, images map[string]imageResource) error {
 	dec := xml.NewDecoder(bytes.NewReader(xmlBytes))
 	if err := advanceToNS(dec, wNS, "document"); err != nil {
 		return fmt.Errorf("ooxml: could not find <w:document>: %w", err)
@@ -231,7 +277,7 @@ func parseDocument(xmlBytes []byte, doc *ir.Document) error {
 	}
 
 	section := ir.Section{}
-	ctx := &parseCtx{section: &section}
+	ctx := &parseCtx{section: &section, images: images}
 	if err := parseBlocks(dec, "body", &section.Blocks, ctx); err != nil {
 		return err
 	}
@@ -243,7 +289,9 @@ func parseDocument(xmlBytes []byte, doc *ir.Document) error {
 type parseCtx struct {
 	paraSeq  int
 	tableSeq int
+	imageSeq int
 	section  *ir.Section
+	images   map[string]imageResource
 }
 
 func (c *parseCtx) nextParaID() string {
@@ -253,6 +301,11 @@ func (c *parseCtx) nextParaID() string {
 func (c *parseCtx) nextTableID() string {
 	c.tableSeq++
 	return fmt.Sprintf("t%d", c.tableSeq)
+}
+
+func (c *parseCtx) nextImageID() string {
+	c.imageSeq++
+	return fmt.Sprintf("image%d", c.imageSeq)
 }
 
 // advanceToNS consumes tokens until a StartElement with the given namespace
@@ -291,7 +344,7 @@ func parseBlocks(dec *xml.Decoder, parentLocal string, blocks *[]ir.Block, ctx *
 				if err := dec.DecodeElement(&xp, &t); err != nil {
 					return err
 				}
-				*blocks = append(*blocks, convertParagraph(xp, ctx.nextParaID()))
+				*blocks = append(*blocks, convertParagraphBlocks(xp, ctx)...)
 			case "tbl":
 				var xt xmlTable
 				if err := dec.DecodeElement(&xt, &t); err != nil {
@@ -345,6 +398,64 @@ func convertParagraph(xp xmlParagraph, id string) *ir.Paragraph {
 		p.Runs = append(p.Runs, convertRun(xr))
 	}
 	return p
+}
+
+func convertParagraphBlocks(paragraph xmlParagraph, context *parseCtx) []ir.Block {
+	blocks := make([]ir.Block, 0, 1)
+	if paragraph.Props != nil || paragraphHasText(paragraph) || !paragraphHasDrawing(paragraph) {
+		blocks = append(blocks, convertParagraph(paragraph, context.nextParaID()))
+	}
+	for _, run := range paragraph.Runs {
+		for _, drawing := range run.Drawings {
+			if image := convertDrawing(drawing, context); image != nil {
+				blocks = append(blocks, image)
+			}
+		}
+	}
+	return blocks
+}
+
+func paragraphHasText(paragraph xmlParagraph) bool {
+	for _, run := range paragraph.Runs {
+		if len(run.Text) > 0 || len(run.Breaks) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func paragraphHasDrawing(paragraph xmlParagraph) bool {
+	for _, run := range paragraph.Runs {
+		if len(run.Drawings) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func convertDrawing(drawing xmlDrawing, context *parseCtx) *ir.Image {
+	container := drawing.Inline
+	float := ir.FloatNone
+	if container == nil {
+		container = drawing.Anchor
+		float = ir.FloatLeft
+	}
+	if container == nil {
+		return nil
+	}
+	resource, ok := context.images[container.Graphic.Data.Picture.BlipFill.Blip.Embed]
+	if !ok {
+		return nil
+	}
+	image := &ir.Image{ID: context.nextImageID(), Data: resource.Data, Format: resource.Format, Float: float}
+	if container.DocPr != nil {
+		image.Alt = container.DocPr.Description
+	}
+	if container.Extent != nil {
+		image.Width = emuAttr(container.Extent.CX)
+		image.Height = emuAttr(container.Extent.CY)
+	}
+	return image
 }
 
 func convertRun(xr xmlRun) ir.Run {
@@ -609,7 +720,7 @@ func convertCell(xc xmlTableCell, ctx *parseCtx) ir.TableCell {
 		applyCellProps(&cell, xc.Props)
 	}
 	for _, xp := range xc.Paragraphs {
-		cell.Blocks = append(cell.Blocks, convertParagraph(xp, ctx.nextParaID()))
+		cell.Blocks = append(cell.Blocks, convertParagraphBlocks(xp, ctx)...)
 	}
 	for _, xt := range xc.Tables {
 		cell.Blocks = append(cell.Blocks, convertTable(xt, ctx))
@@ -743,6 +854,14 @@ func twipAttr(s string) float64 {
 		return 0
 	}
 	return units.TwipsToPoints(v)
+}
+
+func emuAttr(value string) float64 {
+	emu, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0
+	}
+	return emu / 12700
 }
 
 func breakTypeFromVal(v string) ir.BreakType {

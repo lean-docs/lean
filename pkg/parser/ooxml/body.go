@@ -21,6 +21,56 @@ type xmlParagraph struct {
 	Runs  []xmlRun      `xml:"r"`
 }
 
+func (paragraph *xmlParagraph) UnmarshalXML(decoder *xml.Decoder, start xml.StartElement) error {
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		switch element := token.(type) {
+		case xml.StartElement:
+			switch element.Name.Local {
+			case "pPr":
+				var properties xmlParaProps
+				if err := decoder.DecodeElement(&properties, &element); err != nil {
+					return err
+				}
+				paragraph.Props = &properties
+			case "r":
+				var run xmlRun
+				if err := decoder.DecodeElement(&run, &element); err != nil {
+					return err
+				}
+				paragraph.Runs = append(paragraph.Runs, run)
+			case "hyperlink":
+				var hyperlink xmlHyperlink
+				if err := decoder.DecodeElement(&hyperlink, &element); err != nil {
+					return err
+				}
+				for index := range hyperlink.Runs {
+					hyperlink.Runs[index].HyperlinkID = hyperlink.ID
+					hyperlink.Runs[index].HyperlinkAnchor = hyperlink.Anchor
+				}
+				paragraph.Runs = append(paragraph.Runs, hyperlink.Runs...)
+			default:
+				if err := decoder.Skip(); err != nil {
+					return err
+				}
+			}
+		case xml.EndElement:
+			if element.Name.Local == start.Name.Local {
+				return nil
+			}
+		}
+	}
+}
+
+type xmlHyperlink struct {
+	ID     string   `xml:"id,attr"`
+	Anchor string   `xml:"anchor,attr"`
+	Runs   []xmlRun `xml:"r"`
+}
+
 type xmlParaProps struct {
 	Align           *xmlValAttr `xml:"jc"`
 	Spacing         *xmlSpacing `xml:"spacing"`
@@ -60,10 +110,12 @@ type xmlTab struct {
 }
 
 type xmlRun struct {
-	Props    *xmlRunProps `xml:"rPr"`
-	Text     []xmlText    `xml:"t"`
-	Breaks   []xmlBreak   `xml:"br"`
-	Drawings []xmlDrawing `xml:"drawing"`
+	Props           *xmlRunProps `xml:"rPr"`
+	Text            []xmlText    `xml:"t"`
+	Breaks          []xmlBreak   `xml:"br"`
+	Drawings        []xmlDrawing `xml:"drawing"`
+	HyperlinkID     string       `xml:"-"`
+	HyperlinkAnchor string       `xml:"-"`
 }
 
 type xmlDrawing struct {
@@ -267,7 +319,7 @@ type imageResource struct {
 // Body children (w:p, w:tbl) are handled in order; unknown elements skipped.
 const wNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
-func parseDocument(xmlBytes []byte, doc *ir.Document, images map[string]imageResource) error {
+func parseDocument(xmlBytes []byte, doc *ir.Document, images map[string]imageResource, hyperlinks map[string]string) error {
 	dec := xml.NewDecoder(bytes.NewReader(xmlBytes))
 	if err := advanceToNS(dec, wNS, "document"); err != nil {
 		return fmt.Errorf("ooxml: could not find <w:document>: %w", err)
@@ -277,7 +329,7 @@ func parseDocument(xmlBytes []byte, doc *ir.Document, images map[string]imageRes
 	}
 
 	section := ir.Section{}
-	ctx := &parseCtx{section: &section, images: images}
+	ctx := &parseCtx{section: &section, images: images, hyperlinks: hyperlinks}
 	if err := parseBlocks(dec, "body", &section.Blocks, ctx); err != nil {
 		return err
 	}
@@ -287,11 +339,12 @@ func parseDocument(xmlBytes []byte, doc *ir.Document, images map[string]imageRes
 
 // parseCtx carries counters used for block ID generation.
 type parseCtx struct {
-	paraSeq  int
-	tableSeq int
-	imageSeq int
-	section  *ir.Section
-	images   map[string]imageResource
+	paraSeq    int
+	tableSeq   int
+	imageSeq   int
+	section    *ir.Section
+	images     map[string]imageResource
+	hyperlinks map[string]string
 }
 
 func (c *parseCtx) nextParaID() string {
@@ -389,13 +442,13 @@ func applySectionProps(section *ir.Section, properties *xmlSectionProps) {
 	}
 }
 
-func convertParagraph(xp xmlParagraph, id string) *ir.Paragraph {
+func convertParagraph(xp xmlParagraph, id string, context *parseCtx) *ir.Paragraph {
 	p := &ir.Paragraph{ID: id}
 	if xp.Props != nil {
 		applyParaProps(&p.Para, xp.Props)
 	}
 	for _, xr := range xp.Runs {
-		p.Runs = append(p.Runs, convertRun(xr))
+		p.Runs = append(p.Runs, convertRun(xr, context))
 	}
 	return p
 }
@@ -403,7 +456,7 @@ func convertParagraph(xp xmlParagraph, id string) *ir.Paragraph {
 func convertParagraphBlocks(paragraph xmlParagraph, context *parseCtx) []ir.Block {
 	blocks := make([]ir.Block, 0, 1)
 	if paragraph.Props != nil || paragraphHasText(paragraph) || !paragraphHasDrawing(paragraph) {
-		blocks = append(blocks, convertParagraph(paragraph, context.nextParaID()))
+		blocks = append(blocks, convertParagraph(paragraph, context.nextParaID(), context))
 	}
 	for _, run := range paragraph.Runs {
 		for _, drawing := range run.Drawings {
@@ -458,7 +511,7 @@ func convertDrawing(drawing xmlDrawing, context *parseCtx) *ir.Image {
 	return image
 }
 
-func convertRun(xr xmlRun) ir.Run {
+func convertRun(xr xmlRun, context *parseCtx) ir.Run {
 	var run ir.Run
 	for _, t := range xr.Text {
 		run.Text += t.Value
@@ -468,6 +521,13 @@ func convertRun(xr xmlRun) ir.Run {
 	}
 	if xr.Props != nil {
 		applyRunProps(&run.Attrs, xr.Props)
+	}
+	if xr.HyperlinkID != "" {
+		if target := context.hyperlinks[xr.HyperlinkID]; target != "" {
+			run.Hyperlink = &ir.Hyperlink{URL: target}
+		}
+	} else if xr.HyperlinkAnchor != "" {
+		run.Hyperlink = &ir.Hyperlink{Bookmark: xr.HyperlinkAnchor}
 	}
 	return run
 }

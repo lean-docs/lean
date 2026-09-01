@@ -81,12 +81,11 @@ func inspectDOCX(input []byte) (FidelityReport, error) {
 		}
 	}
 	markers := map[string]string{
-		"<w:hyperlink": "hyperlinks",
-		"<w:numPr":     "numbering",
-		"<w:pStyle":    "styles",
-		"<w:sdt":       "content-controls",
-		"<w:fldChar":   "fields",
-		"<w:vMerge":    "row-spans",
+		"<w:numPr":   "numbering",
+		"<w:pStyle":  "styles",
+		"<w:sdt":     "content-controls",
+		"<w:fldChar": "fields",
+		"<w:vMerge":  "row-spans",
 	}
 	for marker, feature := range markers {
 		if strings.Contains(documentXML, marker) {
@@ -229,9 +228,6 @@ func walkDocumentBlocks(blocks []ir.Block, report *FidelityReport) {
 				report.addUnsupported("footnotes")
 			}
 			for _, run := range value.Runs {
-				if run.Hyperlink != nil {
-					report.addUnsupported("hyperlinks")
-				}
 				if run.Attrs.Highlight != (ir.Color{}) && !supportedHighlight(run.Attrs.Highlight) {
 					report.addUnsupported("highlighting")
 				}

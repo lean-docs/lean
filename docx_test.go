@@ -179,6 +179,49 @@ func TestSaveDOCXRoundTripsEmbeddedImage(t *testing.T) {
 	assert.Equal(t, "Quarterly revenue chart", image.Alt)
 }
 
+func TestOpenDOCXReadsExternalHyperlinks(t *testing.T) {
+	content, err := os.ReadFile("testdata/fixtures/ooxml/python-docx/par-hyperlinks.docx")
+	require.NoError(t, err)
+	document, _, err := lean.OpenDOCX(content)
+	require.NoError(t, err)
+
+	var found bool
+	for _, block := range document.Sections[0].Blocks {
+		paragraph, ok := block.(*ir.Paragraph)
+		if !ok {
+			continue
+		}
+		for _, run := range paragraph.Runs {
+			if run.Text == "awesome hyperlink" && run.Hyperlink != nil {
+				assert.Equal(t, "http://yahoo.com/", run.Hyperlink.URL)
+				found = true
+			}
+		}
+	}
+	assert.True(t, found)
+}
+
+func TestSaveDOCXRoundTripsHyperlinks(t *testing.T) {
+	document := ir.NewDocument()
+	document.Sections[0].Blocks = []ir.Block{&ir.Paragraph{ID: "p1", Runs: []ir.Run{
+		{Text: "Website", Hyperlink: &ir.Hyperlink{URL: "https://whilesmart.com/docs?from=lean&format=docx"}},
+		{Text: "Section", Hyperlink: &ir.Hyperlink{Bookmark: "overview"}},
+	}}}
+
+	content, report, err := lean.SaveDOCX(document)
+	require.NoError(t, err)
+	assert.True(t, report.Editable)
+	reopened, reopenedReport, err := lean.OpenDOCX(content)
+	require.NoError(t, err)
+	assert.True(t, reopenedReport.Editable)
+	paragraph := reopened.Sections[0].Blocks[0].(*ir.Paragraph)
+	require.Len(t, paragraph.Runs, 2)
+	require.NotNil(t, paragraph.Runs[0].Hyperlink)
+	assert.Equal(t, "https://whilesmart.com/docs?from=lean&format=docx", paragraph.Runs[0].Hyperlink.URL)
+	require.NotNil(t, paragraph.Runs[1].Hyperlink)
+	assert.Equal(t, "overview", paragraph.Runs[1].Hyperlink.Bookmark)
+}
+
 func floatPointer(value float64) *float64 {
 	return &value
 }

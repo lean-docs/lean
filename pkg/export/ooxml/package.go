@@ -17,6 +17,8 @@ var ErrNilDocument = errors.New("ooxml exporter: document is nil")
 type packageState struct {
 	doc          *ir.Document
 	images       []*ir.Image
+	hyperlinks   []string
+	hyperlinkIDs map[string]int
 	hasHeader    bool
 	hasFooter    bool
 	hasFootnotes bool
@@ -65,7 +67,7 @@ func buildPackage(doc *ir.Document) ([]byte, error) {
 }
 
 func inspect(doc *ir.Document) *packageState {
-	state := &packageState{doc: doc}
+	state := &packageState{doc: doc, hyperlinkIDs: make(map[string]int)}
 	for _, section := range doc.Sections {
 		state.hasHeader = state.hasHeader || section.Header != nil
 		state.hasFooter = state.hasFooter || section.Footer != nil
@@ -75,6 +77,15 @@ func inspect(doc *ir.Document) *packageState {
 				state.images = append(state.images, value)
 			case *ir.Paragraph:
 				state.hasFootnotes = state.hasFootnotes || len(value.Footnotes) > 0
+				for _, run := range value.Runs {
+					if run.Hyperlink == nil || run.Hyperlink.URL == "" {
+						continue
+					}
+					if _, exists := state.hyperlinkIDs[run.Hyperlink.URL]; !exists {
+						state.hyperlinks = append(state.hyperlinks, run.Hyperlink.URL)
+						state.hyperlinkIDs[run.Hyperlink.URL] = len(state.hyperlinks)
+					}
+				}
 			}
 		})
 	}
@@ -99,7 +110,7 @@ func (state *packageState) documentXML() string {
 	imageIndex := 0
 	for _, section := range state.doc.Sections {
 		for _, block := range section.Blocks {
-			writeBlock(&body, block, &imageIndex)
+			writeBlock(&body, block, &imageIndex, state)
 		}
 		writeSectionProperties(&body, section, state.hasHeader, state.hasFooter)
 	}
@@ -109,12 +120,12 @@ func (state *packageState) documentXML() string {
 	return xmlDeclaration + `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>` + body.String() + `</w:body></w:document>`
 }
 
-func writeBlock(output *strings.Builder, block ir.Block, imageIndex *int) {
+func writeBlock(output *strings.Builder, block ir.Block, imageIndex *int, state *packageState) {
 	switch value := block.(type) {
 	case *ir.Paragraph:
-		writeParagraph(output, value)
+		writeParagraph(output, value, state)
 	case *ir.Table:
-		writeTable(output, value, imageIndex)
+		writeTable(output, value, imageIndex, state)
 	case *ir.Image:
 		*imageIndex = *imageIndex + 1
 		writeImage(output, value, *imageIndex)
@@ -123,11 +134,11 @@ func writeBlock(output *strings.Builder, block ir.Block, imageIndex *int) {
 	}
 }
 
-func writeParagraph(output *strings.Builder, paragraph *ir.Paragraph) {
+func writeParagraph(output *strings.Builder, paragraph *ir.Paragraph, state *packageState) {
 	output.WriteString("<w:p>")
 	writeParagraphProperties(output, paragraph)
 	for _, run := range paragraph.Runs {
-		writeRun(output, run)
+		writeRun(output, run, state)
 	}
 	for index := range paragraph.Footnotes {
 		output.WriteString(`<w:r><w:footnoteReference w:id="` + strconv.Itoa(index+1) + `"/></w:r>`)
@@ -189,7 +200,26 @@ func hasParagraphProperties(attrs ir.ParaAttrs) bool {
 	return attrs.Align != ir.AlignLeft || attrs.Spacing != (ir.Spacing{}) || attrs.Indent != (ir.Indent{}) || len(attrs.TabStops) > 0 || attrs.KeepTogether || attrs.KeepWithNext || attrs.PageBreakBefore || attrs.OutlineLevel > 0 || attrs.Borders != (ir.ParaBorders{}) || attrs.Shading != (ir.Color{}) || attrs.BiDi
 }
 
-func writeRun(output *strings.Builder, run ir.Run) {
+func writeRun(output *strings.Builder, run ir.Run, state *packageState) {
+	if run.Hyperlink != nil {
+		if run.Hyperlink.URL != "" && state != nil {
+			if id := state.hyperlinkIDs[run.Hyperlink.URL]; id > 0 {
+				output.WriteString(`<w:hyperlink r:id="rIdHyperlink` + strconv.Itoa(id) + `">`)
+				writeRunContent(output, run)
+				output.WriteString(`</w:hyperlink>`)
+				return
+			}
+		} else if run.Hyperlink.Bookmark != "" {
+			output.WriteString(`<w:hyperlink w:anchor="` + escape(run.Hyperlink.Bookmark) + `">`)
+			writeRunContent(output, run)
+			output.WriteString(`</w:hyperlink>`)
+			return
+		}
+	}
+	writeRunContent(output, run)
+}
+
+func writeRunContent(output *strings.Builder, run ir.Run) {
 	output.WriteString("<w:r>")
 	writeRunProperties(output, run.Attrs)
 	if run.Text != "" {
@@ -248,7 +278,7 @@ func writeRunProperties(output *strings.Builder, attrs ir.RunAttrs) {
 	output.WriteString("</w:rPr>")
 }
 
-func writeTable(output *strings.Builder, table *ir.Table, imageIndex *int) {
+func writeTable(output *strings.Builder, table *ir.Table, imageIndex *int, state *packageState) {
 	output.WriteString("<w:tbl>")
 	if table.Style != "" || table.Align != ir.AlignLeft || table.Borders != (ir.TableBorders{}) || table.Shading != (ir.Color{}) {
 		output.WriteString("<w:tblPr>")
@@ -304,7 +334,7 @@ func writeTable(output *strings.Builder, table *ir.Table, imageIndex *int) {
 				output.WriteString("</w:tcPr>")
 			}
 			for _, block := range cell.Blocks {
-				writeBlock(output, block, imageIndex)
+				writeBlock(output, block, imageIndex, state)
 			}
 			if len(cell.Blocks) == 0 {
 				output.WriteString("<w:p/>")
@@ -386,6 +416,9 @@ func (state *packageState) documentRelationships() string {
 	for index := range state.images {
 		content += `<Relationship Id="rIdImage` + strconv.Itoa(index+1) + `" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image` + strconv.Itoa(index+1) + `.` + imageExtension(state.images[index].Format) + `"/>`
 	}
+	for index, target := range state.hyperlinks {
+		content += `<Relationship Id="rIdHyperlink` + strconv.Itoa(index+1) + `" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="` + escape(target) + `" TargetMode="External"/>`
+	}
 	return xmlDeclaration + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` + content + `</Relationships>`
 }
 
@@ -407,7 +440,7 @@ func headerFooterXML(element string, value *ir.HeaderFooter) string {
 	if value != nil {
 		index := 0
 		for _, block := range value.Blocks {
-			writeBlock(&content, block, &index)
+			writeBlock(&content, block, &index, nil)
 		}
 	}
 	return xmlDeclaration + `<w:` + element + ` xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` + content.String() + `</w:` + element + `>`
@@ -427,7 +460,7 @@ func footnotesXML(doc *ir.Document) string {
 				content.WriteString(`<w:footnote w:id="` + strconv.Itoa(index) + `">`)
 				image := 0
 				for _, nested := range note.Blocks {
-					writeBlock(&content, nested, &image)
+					writeBlock(&content, nested, &image, nil)
 				}
 				content.WriteString(`</w:footnote>`)
 			}

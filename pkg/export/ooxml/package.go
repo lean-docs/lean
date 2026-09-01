@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -39,6 +40,9 @@ func buildPackage(doc *ir.Document) ([]byte, error) {
 	}
 	if len(doc.Styles.Numbering) > 0 {
 		parts["word/numbering.xml"] = numberingXML(doc.Styles.Numbering)
+	}
+	if len(doc.Styles.Named) > 0 || doc.Styles.Defaults != (ir.RunAttrs{}) {
+		parts["word/styles.xml"] = stylesXML(doc.Styles)
 	}
 	if state.hasHeader {
 		parts["word/header1.xml"] = headerFooterXML("hdr", firstHeader(doc))
@@ -383,6 +387,9 @@ func (state *packageState) contentTypes() string {
 	if len(state.doc.Styles.Numbering) > 0 {
 		content += `<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>`
 	}
+	if len(state.doc.Styles.Named) > 0 || state.doc.Styles.Defaults != (ir.RunAttrs{}) {
+		content += `<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>`
+	}
 	if state.hasHeader {
 		content += `<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>`
 	}
@@ -403,6 +410,9 @@ func (state *packageState) documentRelationships() string {
 	content := ""
 	if len(state.doc.Styles.Numbering) > 0 {
 		content += `<Relationship Id="rIdNumbering" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>`
+	}
+	if len(state.doc.Styles.Named) > 0 || state.doc.Styles.Defaults != (ir.RunAttrs{}) {
+		content += `<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`
 	}
 	if state.hasHeader {
 		content += `<Relationship Id="rIdHeader" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>`
@@ -437,6 +447,38 @@ func numberingXML(definitions []ir.NumberingDef) string {
 		content.WriteString(`</w:abstractNum><w:num w:numId="` + escape(definition.ID) + `"><w:abstractNumId w:val="` + strconv.Itoa(id) + `"/></w:num>`)
 	}
 	return xmlDeclaration + `<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` + content.String() + `</w:numbering>`
+}
+
+func stylesXML(sheet ir.StyleSheet) string {
+	var content strings.Builder
+	if sheet.Defaults != (ir.RunAttrs{}) {
+		content.WriteString("<w:docDefaults><w:rPrDefault>")
+		writeRunProperties(&content, sheet.Defaults)
+		content.WriteString("</w:rPrDefault></w:docDefaults>")
+	}
+	ids := make([]string, 0, len(sheet.Named))
+	for id := range sheet.Named {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		style := sheet.Named[id]
+		kind := "paragraph"
+		if style.IsChar {
+			kind = "character"
+		}
+		content.WriteString(`<w:style w:type="` + kind + `" w:styleId="` + escape(style.ID) + `">`)
+		if style.Name != "" {
+			content.WriteString(`<w:name w:val="` + escape(style.Name) + `"/>`)
+		}
+		if style.BasedOn != "" {
+			content.WriteString(`<w:basedOn w:val="` + escape(style.BasedOn) + `"/>`)
+		}
+		writeParagraphProperties(&content, &ir.Paragraph{Para: style.ParaAttrs})
+		writeRunProperties(&content, style.RunAttrs)
+		content.WriteString("</w:style>")
+	}
+	return xmlDeclaration + `<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` + content.String() + `</w:styles>`
 }
 
 func headerFooterXML(element string, value *ir.HeaderFooter) string {

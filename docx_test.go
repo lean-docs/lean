@@ -260,6 +260,48 @@ func TestSaveDOCXRoundTripsNumbering(t *testing.T) {
 	assert.Equal(t, &ir.NumberingRef{ID: "42", Level: 1}, second.Numbering)
 }
 
+func TestOpenDOCXReadsNamedStyles(t *testing.T) {
+	content, err := os.ReadFile("testdata/fixtures/ooxml/python-docx/par-known-styles.docx")
+	require.NoError(t, err)
+	document, _, err := lean.OpenDOCX(content)
+	require.NoError(t, err)
+
+	heading, exists := document.Styles.Named["Heading1"]
+	require.True(t, exists)
+	assert.Equal(t, "heading 1", heading.Name)
+	assert.Equal(t, "Normal", heading.BasedOn)
+	assert.True(t, heading.RunAttrs.Bold)
+	assert.Equal(t, 14.0, heading.RunAttrs.FontSize)
+	assert.True(t, heading.ParaAttrs.KeepWithNext)
+	paragraph := document.Sections[0].Blocks[2].(*ir.Paragraph)
+	assert.Equal(t, "Heading1", paragraph.Style)
+}
+
+func TestSaveDOCXRoundTripsNamedStyles(t *testing.T) {
+	document := ir.NewDocument()
+	document.Styles.Defaults = ir.RunAttrs{FontName: "Aptos", FontSize: 11, Language: "en-US"}
+	document.Styles.Named = map[string]ir.Style{
+		"Normal": {ID: "Normal", Name: "Normal"},
+		"Heading1": {
+			ID: "Heading1", Name: "Heading 1", BasedOn: "Normal",
+			ParaAttrs: ir.ParaAttrs{KeepWithNext: true, OutlineLevel: 1, Spacing: ir.Spacing{Before: 18, After: 6}},
+			RunAttrs:  ir.RunAttrs{Bold: true, FontSize: 16, Color: ir.Color{R: 25, G: 50, B: 75}},
+		},
+	}
+	document.Sections[0].Blocks = []ir.Block{&ir.Paragraph{ID: "p1", Style: "Heading1", Runs: []ir.Run{{Text: "Roadmap"}}}}
+
+	content, report, err := lean.SaveDOCX(document)
+	require.NoError(t, err)
+	assert.True(t, report.Editable)
+	reopened, reopenedReport, err := lean.OpenDOCX(content)
+	require.NoError(t, err)
+	assert.True(t, reopenedReport.Editable)
+	assert.Equal(t, document.Styles.Defaults, reopened.Styles.Defaults)
+	assert.Equal(t, document.Styles.Named, reopened.Styles.Named)
+	paragraph := reopened.Sections[0].Blocks[0].(*ir.Paragraph)
+	assert.Equal(t, "Heading1", paragraph.Style)
+}
+
 func floatPointer(value float64) *float64 {
 	return &value
 }

@@ -81,7 +81,6 @@ func inspectDOCX(input []byte) (FidelityReport, error) {
 		}
 	}
 	markers := map[string]string{
-		"<w:pStyle":  "styles",
 		"<w:sdt":     "content-controls",
 		"<w:fldChar": "fields",
 		"<w:vMerge":  "row-spans",
@@ -93,6 +92,9 @@ func inspectDOCX(input []byte) (FidelityReport, error) {
 	}
 	if hasElementWithin(documentXML, "rPr", "shd") {
 		report.addUnsupported("run-shading")
+	}
+	if hasElementWithin(documentXML, "rPr", "rStyle") {
+		report.addUnsupported("character-style-references")
 	}
 	if hasElementWithin(documentXML, "body", "ins") || hasElementWithin(documentXML, "body", "del") {
 		report.addUnsupported("tracked-changes")
@@ -184,9 +186,6 @@ func inspectDocument(document *ir.Document) FidelityReport {
 		report.addUnsupported("document")
 		return report
 	}
-	if len(document.Styles.Named) > 0 {
-		report.addUnsupported("styles")
-	}
 	for _, section := range document.Sections {
 		if len(section.Columns) > 0 {
 			report.addUnsupported("page-columns")
@@ -214,9 +213,6 @@ func walkDocumentBlocks(blocks []ir.Block, report *FidelityReport) {
 		case *ir.Bookmark:
 			report.addUnsupported("bookmarks")
 		case *ir.Paragraph:
-			if value.Style != "" {
-				report.addUnsupported("styles")
-			}
 			if len(value.Footnotes) > 0 {
 				report.addUnsupported("footnotes")
 			}

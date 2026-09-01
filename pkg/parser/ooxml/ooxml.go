@@ -56,6 +56,13 @@ func Parse(input []byte) (*ir.Document, error) {
 			return nil, fmt.Errorf("ooxml: parse numbering: %w", err)
 		}
 	}
+	if stylesXML, stylesErr := readOptionalEntry(r, "word/styles.xml"); stylesErr != nil {
+		return nil, stylesErr
+	} else if len(stylesXML) > 0 {
+		if err := parseStyles(stylesXML, doc); err != nil {
+			return nil, fmt.Errorf("ooxml: parse styles: %w", err)
+		}
+	}
 	doc.Sections = doc.Sections[:0]
 	images, hyperlinks, err := readRelationships(r)
 	if err != nil {

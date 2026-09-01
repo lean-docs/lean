@@ -190,7 +190,6 @@ func TestOOXMLPageBreakBefore(t *testing.T) {
 
 // C4.21 — Named styles parsed into StyleSheet
 func TestOOXMLNamedStyles(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: fixture with named styles (e.g. Heading1)
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -200,7 +199,6 @@ func TestOOXMLNamedStyles(t *testing.T) {
 
 // C4.22 — Paragraph references a named style
 func TestOOXMLParagraphStyleRef(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: fixture with a paragraph referencing a style
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -210,7 +208,6 @@ func TestOOXMLParagraphStyleRef(t *testing.T) {
 
 // C4.23 — Hyperlink with URL
 func TestOOXMLHyperlinkURL(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: fixture with an external hyperlink
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -227,7 +224,6 @@ func TestOOXMLHyperlinkURL(t *testing.T) {
 
 // C4.24 — Internal bookmark hyperlink
 func TestOOXMLHyperlinkBookmark(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: fixture with an internal bookmark hyperlink
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -271,7 +267,6 @@ func TestOOXMLColumnBreak(t *testing.T) {
 
 // C4.28 — Bullet list (numbering reference)
 func TestOOXMLBulletList(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: fixture with a bullet list
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -292,7 +287,6 @@ func TestOOXMLBulletList(t *testing.T) {
 
 // C4.29 — Numbered list (decimal)
 func TestOOXMLNumberedList(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: fixture with a decimal numbered list
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -312,7 +306,6 @@ func TestOOXMLNumberedList(t *testing.T) {
 
 // C4.30 — Multi-level numbering
 func TestOOXMLMultiLevelNumbering(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: fixture with multi-level list
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -333,7 +326,6 @@ func TestOOXMLMultiLevelNumbering(t *testing.T) {
 
 // C4.36 — Footnote
 func TestOOXMLFootnote(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: fixture with a footnote
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -345,7 +337,6 @@ func TestOOXMLFootnote(t *testing.T) {
 
 // C4.37 — Header content
 func TestOOXMLHeaderContent(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: fixture with a page header
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -356,7 +347,6 @@ func TestOOXMLHeaderContent(t *testing.T) {
 
 // C4.38 — Footer content
 func TestOOXMLFooterContent(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: fixture with a page footer
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -367,7 +357,6 @@ func TestOOXMLFooterContent(t *testing.T) {
 
 // C4.39 — Page properties (dimensions, margins, orientation)
 func TestOOXMLPageProperties(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: fixture with explicit page size and margins
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -383,7 +372,6 @@ func TestOOXMLPageProperties(t *testing.T) {
 
 // C4.40 — Landscape orientation
 func TestOOXMLLandscapeOrientation(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: fixture with landscape page
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -393,7 +381,6 @@ func TestOOXMLLandscapeOrientation(t *testing.T) {
 
 // C4.41 — Document metadata (title, author)
 func TestOOXMLDocumentMetadata(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: fixture with core properties (title, author)
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -404,7 +391,6 @@ func TestOOXMLDocumentMetadata(t *testing.T) {
 
 // C4.42 — Bookmark block
 func TestOOXMLBookmark(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: fixture with a bookmark
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -471,7 +457,6 @@ func TestOOXMLCorruptXML(t *testing.T) {
 
 // C5.7 — Unknown element in body is gracefully ignored
 func TestOOXMLUnknownElementIgnored(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: fixture — .docx with an unknown XML element in w:body
 	doc, err := Parse(nil)
 	require.NoError(t, err)

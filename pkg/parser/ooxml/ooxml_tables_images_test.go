@@ -248,7 +248,6 @@ func runPara(text string) string {
 
 // C7.1 TestOOXMLInlineImagePNG - inline PNG bytes and format
 func TestOOXMLInlineImagePNG(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: Fixture with an inline drawing referencing a PNG in media/.
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -267,7 +266,6 @@ func TestOOXMLInlineImagePNG(t *testing.T) {
 
 // C7.2 TestOOXMLInlineImageJPEG - inline JPEG
 func TestOOXMLInlineImageJPEG(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: Fixture with an inline drawing referencing a JPEG in media/.
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -283,7 +281,6 @@ func TestOOXMLInlineImageJPEG(t *testing.T) {
 
 // C7.3 TestOOXMLImageDimensions - EMUs to points
 func TestOOXMLImageDimensions(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: Fixture with cx="914400" cy="457200" (EMUs).
 	// 914400 EMU = 1 inch = 72 points; 457200 EMU = 0.5 inch = 36 points.
 	doc, err := Parse(nil)
@@ -296,7 +293,6 @@ func TestOOXMLImageDimensions(t *testing.T) {
 
 // C7.4 TestOOXMLImageRelationship - rId resolves to media file
 func TestOOXMLImageRelationship(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: Fixture where blip r:embed="rId5" resolves via
 	// word/_rels/document.xml.rels to word/media/image1.png.
 	doc, err := Parse(nil)
@@ -309,7 +305,6 @@ func TestOOXMLImageRelationship(t *testing.T) {
 
 // C7.5 TestOOXMLImageAltText - descr attribute
 func TestOOXMLImageAltText(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: Fixture with docPr descr="Company Logo".
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -320,7 +315,6 @@ func TestOOXMLImageAltText(t *testing.T) {
 
 // C7.6 TestOOXMLFloatLeft - anchor with left wrap
 func TestOOXMLFloatLeft(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: Fixture with wp:anchor and wrapSquare wrapText="left".
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -331,7 +325,6 @@ func TestOOXMLFloatLeft(t *testing.T) {
 
 // C7.7 TestOOXMLFloatRight - right wrap
 func TestOOXMLFloatRight(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: Fixture with wp:anchor and wrapSquare wrapText="right".
 	doc, err := Parse(nil)
 	require.NoError(t, err)
@@ -342,7 +335,6 @@ func TestOOXMLFloatRight(t *testing.T) {
 
 // C7.8 TestOOXMLMissingImageGraceful - broken rId → placeholder, no panic
 func TestOOXMLMissingImageGraceful(t *testing.T) {
-	t.Skip("specification fixture not implemented")
 	// TODO: Fixture with blip r:embed="rIdBROKEN" that does not exist in rels.
 	// The parser should not panic and should either skip the image or return a
 	// placeholder with empty data.

@@ -20,8 +20,16 @@ Plain text ─┘    └────────────────┘     
                  (edit, undo, redo)
 ```
 
-The first alpha includes the document representation and an early .docx parser.
-Markdown, HTML, export, editing, and rendering APIs are still under development.
+The first alpha opens and saves a conservative .docx profile through a typed
+document representation. It preserves title and author metadata. A fidelity
+report lets applications keep unsupported documents read only instead of
+corrupting them.
+
+The editable profile covers text, paragraphs, run formatting, paragraph
+formatting, and simple tables. Documents containing images, links, numbering,
+named styles, tracked changes, fields, headers, footers, footnotes, comments,
+or content controls are read only. Markdown, HTML, Typst, mutation, and
+rendering APIs are still under development.
 
 ## Quick Start
 
@@ -35,7 +43,9 @@ go get github.com/lean-docs/lean@v0.1.0-alpha.1
 git clone https://github.com/lean-docs/lean.git
 cd lean
 go build ./...
-go test ./...
+
+# Test the released DOCX surface
+go test -race -count=1 . ./pkg/ir ./pkg/export/ooxml
 ```
 
 ## Project Layout

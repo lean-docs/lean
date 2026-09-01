@@ -8,5 +8,8 @@
 - Document representation with JSON serialization
 - Style resolution with inherited named styles
 - Early .docx parsing for text, paragraphs, tables, and nested tables
-- Build, vet, static analysis, and specification test workflows
+- .docx export for the editable alpha profile
+- Fidelity reports that keep unsupported documents read only
+- Real python-docx conformance fixtures
+- Build, vet, static analysis, and release-surface test workflows
 - Architecture and requirements documentation

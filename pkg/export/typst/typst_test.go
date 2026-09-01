@@ -1,5 +1,3 @@
-//go:build specification
-
 package typst_test
 
 import (

@@ -1,5 +1,3 @@
-//go:build specification
-
 package html_test
 
 import (

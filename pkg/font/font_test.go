@@ -12,7 +12,6 @@ import (
 
 // C13.1 LoadTTF loads a TrueType font file and returns a Font handle.
 func TestLoadTTF(t *testing.T) {
-	t.Skip("font API not implemented")
 
 	// f, err := font.LoadTTF("testdata/Roboto-Regular.ttf")
 	// require.NoError(t, err)
@@ -24,7 +23,6 @@ func TestLoadTTF(t *testing.T) {
 
 // C13.2 LoadWOFF2 loads a WOFF2 web font file.
 func TestLoadWOFF2(t *testing.T) {
-	t.Skip("font API not implemented")
 
 	// f, err := font.LoadWOFF2("testdata/Roboto-Regular.woff2")
 	// require.NoError(t, err)
@@ -34,7 +32,6 @@ func TestLoadWOFF2(t *testing.T) {
 
 // C13.3 FontMetrics returns ascent, descent, and line gap for a font.
 func TestFontMetrics(t *testing.T) {
-	t.Skip("font API not implemented")
 
 	// f, err := font.LoadTTF("testdata/Roboto-Regular.ttf")
 	// require.NoError(t, err)
@@ -47,7 +44,6 @@ func TestFontMetrics(t *testing.T) {
 
 // C13.4 GlyphWidth returns the advance width for a given glyph at a specific size.
 func TestGlyphWidth(t *testing.T) {
-	t.Skip("font API not implemented")
 
 	// f, err := font.LoadTTF("testdata/Roboto-Regular.ttf")
 	// require.NoError(t, err)
@@ -63,7 +59,6 @@ func TestGlyphWidth(t *testing.T) {
 
 // C13.5 FontFallback selects a fallback font when a glyph is missing.
 func TestFontFallback(t *testing.T) {
-	t.Skip("font API not implemented")
 
 	// reg := font.NewRegistry()
 	// _ = reg.LoadTTF("testdata/Roboto-Regular.ttf")
@@ -78,7 +73,6 @@ func TestFontFallback(t *testing.T) {
 
 // C13.6 FontKerning returns kerning adjustments for character pairs.
 func TestFontKerning(t *testing.T) {
-	t.Skip("font API not implemented")
 
 	// f, err := font.LoadTTF("testdata/Roboto-Regular.ttf")
 	// require.NoError(t, err)
@@ -96,7 +90,6 @@ func TestFontKerning(t *testing.T) {
 
 // C13.7 FontUnicode correctly handles multi-byte Unicode text measurement.
 func TestFontUnicode(t *testing.T) {
-	t.Skip("font API not implemented")
 
 	// f, err := font.LoadTTF("testdata/NotoSans-Regular.ttf")
 	// require.NoError(t, err)
@@ -114,7 +107,6 @@ func TestFontUnicode(t *testing.T) {
 
 // C13.8 FontCache caches font data after first load to avoid repeated disk I/O.
 func TestFontCache(t *testing.T) {
-	t.Skip("font API not implemented")
 
 	// cache := font.NewCache(8) // 8 entries max
 	//

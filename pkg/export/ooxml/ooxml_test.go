@@ -1,3 +1,5 @@
+//go:build specification
+
 package ooxml_test
 
 import (

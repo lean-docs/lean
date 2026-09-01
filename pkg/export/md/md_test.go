@@ -1,3 +1,5 @@
+//go:build specification
+
 package md_test
 
 import (

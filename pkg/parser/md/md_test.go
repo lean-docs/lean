@@ -303,9 +303,9 @@ func TestMDFrontmatter(t *testing.T) {
 // C2.26
 func TestMDUnicodeText(t *testing.T) {
 	inputs := []string{
-		"中文测试",         // CJK
-		"مرحبا بالعالم",  // Arabic
-		"こんにちは",        // Japanese
+		"中文测试",          // CJK
+		"مرحبا بالعالم", // Arabic
+		"こんにちは",         // Japanese
 		"Hello 🌍 World", // Emoji
 	}
 	for _, input := range inputs {

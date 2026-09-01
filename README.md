@@ -2,10 +2,12 @@
 
 A lightweight, open-source document engine written in Go.
 
-Lean parses, transforms, and exports documents across formats through a single
-intermediate representation.
+Lean is building a shared document representation for parsing, transforming,
+and exporting standard document formats without binding an application to one editor.
 
-## What It Does
+## Direction
+
+Lean is working toward this architecture:
 
 ```
 Markdown ──┐                              ┌──→ Markdown
@@ -18,15 +20,21 @@ Plain text ─┘    └────────────────┘     
                  (edit, undo, redo)
 ```
 
-**Parsers** read Markdown, HTML, .docx, and plain text into the IR.
-ODT support is planned for v1.1.
-**Exporters** write the IR back out to any supported format.
-PDF, PNG, and SVG rendering is delegated to [Typst](https://typst.app).
+The first alpha opens and saves a conservative .docx profile through a typed
+document representation. It preserves title and author metadata. A fidelity
+report lets applications keep unsupported documents read only instead of
+corrupting them.
+
+The editable profile covers text, paragraphs, run formatting, paragraph
+formatting, and simple tables. Documents containing images, links, numbering,
+named styles, tracked changes, fields, headers, footers, footnotes, comments,
+or content controls are read only. Markdown, HTML, Typst, mutation, and
+rendering APIs are still under development.
 
 ## Quick Start
 
 ```bash
-go install github.com/lean-docs/lean/cmd/lean@latest
+go get github.com/lean-docs/lean@v0.1.0-alpha.1
 ```
 
 ## Building from Source
@@ -35,7 +43,9 @@ go install github.com/lean-docs/lean/cmd/lean@latest
 git clone https://github.com/lean-docs/lean.git
 cd lean
 go build ./...
-go test ./...
+
+# Test the released DOCX surface
+go test -race -count=1 . ./pkg/ir ./pkg/export/ooxml
 ```
 
 ## Project Layout
@@ -57,7 +67,8 @@ lean/
 
 ## Status
 
-Early development. See [CHANGELOG.md](CHANGELOG.md) for progress.
+Alpha software. The public API and document fidelity guarantees can change before v1.0.
+See [CHANGELOG.md](CHANGELOG.md) for the implemented scope.
 
 ## License
 

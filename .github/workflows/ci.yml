@@ -54,5 +54,10 @@ jobs:
         with:
           go-version: '1.24'
 
+      - name: Set up Typst
+        uses: typst-community/setup-typst@v5
+        with:
+          typst-version: 0.14.2
+
       - name: Test
-        run: go test -race -count=1 . ./pkg/ir ./pkg/export/ooxml
+        run: go test -race -count=1 . ./pkg/ir ./pkg/parser/md ./pkg/export/md ./pkg/parser/html ./pkg/export/html ./pkg/export/typst ./pkg/export/ooxml

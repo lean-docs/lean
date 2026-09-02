@@ -16,4 +16,5 @@ License: MIT
 | `par-hyperlinks.docx` | External hyperlinks |
 | `par-known-styles.docx` | Named and referenced styles |
 | `sct-section-props.docx` | Page and section properties |
+| `shp-inline-shape-access.docx` | Inline PNG and JPEG image data, relationships, dimensions, and names |
 | `tbl-2x2-table.docx` | Supported table profile |

@@ -17,18 +17,92 @@ import (
 // ---------------------------------------------------------------------------
 
 type xmlParagraph struct {
-	Props *xmlParaProps `xml:"pPr"`
-	Runs  []xmlRun      `xml:"r"`
+	Props     *xmlParaProps `xml:"pPr"`
+	Runs      []xmlRun      `xml:"r"`
+	Bookmarks []xmlBookmark `xml:"-"`
+}
+
+type xmlBookmark struct {
+	ID   string `xml:"id,attr"`
+	Name string `xml:"name,attr"`
+}
+
+func (paragraph *xmlParagraph) UnmarshalXML(decoder *xml.Decoder, start xml.StartElement) error {
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		switch element := token.(type) {
+		case xml.StartElement:
+			switch element.Name.Local {
+			case "pPr":
+				var properties xmlParaProps
+				if err := decoder.DecodeElement(&properties, &element); err != nil {
+					return err
+				}
+				paragraph.Props = &properties
+			case "r":
+				var run xmlRun
+				if err := decoder.DecodeElement(&run, &element); err != nil {
+					return err
+				}
+				paragraph.Runs = append(paragraph.Runs, run)
+			case "hyperlink":
+				var hyperlink xmlHyperlink
+				if err := decoder.DecodeElement(&hyperlink, &element); err != nil {
+					return err
+				}
+				for index := range hyperlink.Runs {
+					hyperlink.Runs[index].HyperlinkID = hyperlink.ID
+					hyperlink.Runs[index].HyperlinkAnchor = hyperlink.Anchor
+				}
+				paragraph.Runs = append(paragraph.Runs, hyperlink.Runs...)
+			case "bookmarkStart":
+				var bookmark xmlBookmark
+				if err := decoder.DecodeElement(&bookmark, &element); err != nil {
+					return err
+				}
+				paragraph.Bookmarks = append(paragraph.Bookmarks, bookmark)
+			default:
+				if err := decoder.Skip(); err != nil {
+					return err
+				}
+			}
+		case xml.EndElement:
+			if element.Name.Local == start.Name.Local {
+				return nil
+			}
+		}
+	}
+}
+
+type xmlHyperlink struct {
+	ID     string   `xml:"id,attr"`
+	Anchor string   `xml:"anchor,attr"`
+	Runs   []xmlRun `xml:"r"`
 }
 
 type xmlParaProps struct {
-	Align           *xmlValAttr `xml:"jc"`
-	Spacing         *xmlSpacing `xml:"spacing"`
-	Indent          *xmlIndent  `xml:"ind"`
-	Tabs            *xmlTabs    `xml:"tabs"`
-	KeepLines       *xmlToggle  `xml:"keepLines"`
-	KeepNext        *xmlToggle  `xml:"keepNext"`
-	PageBreakBefore *xmlToggle  `xml:"pageBreakBefore"`
+	Style           *xmlValAttr      `xml:"pStyle"`
+	Numbering       *xmlNumPr        `xml:"numPr"`
+	Align           *xmlValAttr      `xml:"jc"`
+	Spacing         *xmlSpacing      `xml:"spacing"`
+	Indent          *xmlIndent       `xml:"ind"`
+	Tabs            *xmlTabs         `xml:"tabs"`
+	KeepLines       *xmlToggle       `xml:"keepLines"`
+	KeepNext        *xmlToggle       `xml:"keepNext"`
+	PageBreakBefore *xmlToggle       `xml:"pageBreakBefore"`
+	OutlineLevel    *xmlValAttr      `xml:"outlineLvl"`
+	Borders         *xmlBorders      `xml:"pBdr"`
+	Shading         *xmlShading      `xml:"shd"`
+	BiDi            *xmlToggle       `xml:"bidi"`
+	Section         *xmlSectionProps `xml:"sectPr"`
+}
+
+type xmlNumPr struct {
+	Level *xmlValAttr `xml:"ilvl"`
+	ID    *xmlValAttr `xml:"numId"`
 }
 
 type xmlSpacing struct {
@@ -56,9 +130,66 @@ type xmlTab struct {
 }
 
 type xmlRun struct {
-	Props  *xmlRunProps `xml:"rPr"`
-	Text   []xmlText    `xml:"t"`
-	Breaks []xmlBreak   `xml:"br"`
+	Props             *xmlRunProps `xml:"rPr"`
+	Text              []xmlText    `xml:"t"`
+	Breaks            []xmlBreak   `xml:"br"`
+	Drawings          []xmlDrawing `xml:"drawing"`
+	FootnoteReference *xmlIDAttr   `xml:"footnoteReference"`
+	HyperlinkID       string       `xml:"-"`
+	HyperlinkAnchor   string       `xml:"-"`
+}
+
+type xmlDrawing struct {
+	Inline *xmlDrawingContainer `xml:"inline"`
+	Anchor *xmlDrawingContainer `xml:"anchor"`
+}
+
+type xmlDrawingContainer struct {
+	Extent      *xmlExtent      `xml:"extent"`
+	DocPr       *xmlDocPr       `xml:"docPr"`
+	PositionH   *xmlPosition    `xml:"positionH"`
+	WrapSquare  *xmlDrawingWrap `xml:"wrapSquare"`
+	WrapTight   *xmlDrawingWrap `xml:"wrapTight"`
+	WrapThrough *xmlDrawingWrap `xml:"wrapThrough"`
+	Graphic     xmlGraphic      `xml:"graphic"`
+}
+
+type xmlPosition struct {
+	Align string `xml:"align"`
+}
+
+type xmlDrawingWrap struct {
+	Text string `xml:"wrapText,attr"`
+}
+
+type xmlExtent struct {
+	CX string `xml:"cx,attr"`
+	CY string `xml:"cy,attr"`
+}
+
+type xmlDocPr struct {
+	Name        string `xml:"name,attr"`
+	Description string `xml:"descr,attr"`
+}
+
+type xmlGraphic struct {
+	Data xmlGraphicData `xml:"graphicData"`
+}
+
+type xmlGraphicData struct {
+	Picture xmlPicture `xml:"pic"`
+}
+
+type xmlPicture struct {
+	BlipFill xmlBlipFill `xml:"blipFill"`
+}
+
+type xmlBlipFill struct {
+	Blip xmlBlip `xml:"blip"`
+}
+
+type xmlBlip struct {
+	Embed string `xml:"embed,attr"`
 }
 
 type xmlBreak struct {
@@ -82,6 +213,8 @@ type xmlRunProps struct {
 	Fonts     *xmlRunFonts `xml:"rFonts"`
 	Color     *xmlValAttr  `xml:"color"`
 	Highlight *xmlValAttr  `xml:"highlight"`
+	Spacing   *xmlValAttr  `xml:"spacing"`
+	Language  *xmlValAttr  `xml:"lang"`
 }
 
 type xmlToggle struct {
@@ -90,6 +223,10 @@ type xmlToggle struct {
 
 type xmlValAttr struct {
 	Val string `xml:"val,attr"`
+}
+
+type xmlIDAttr struct {
+	ID string `xml:"id,attr"`
 }
 
 type xmlRunFonts struct {
@@ -101,16 +238,16 @@ type xmlRunFonts struct {
 // --- table ---
 
 type xmlTable struct {
-	Props *xmlTblProps `xml:"tblPr"`
-	Grid  *xmlTblGrid  `xml:"tblGrid"`
+	Props *xmlTblProps  `xml:"tblPr"`
+	Grid  *xmlTblGrid   `xml:"tblGrid"`
 	Rows  []xmlTableRow `xml:"tr"`
 }
 
 type xmlTblProps struct {
-	Style   *xmlValAttr  `xml:"tblStyle"`
-	Align   *xmlValAttr  `xml:"jc"`
-	Borders *xmlBorders  `xml:"tblBorders"`
-	Shading *xmlShading  `xml:"shd"`
+	Style   *xmlValAttr `xml:"tblStyle"`
+	Align   *xmlValAttr `xml:"jc"`
+	Borders *xmlBorders `xml:"tblBorders"`
+	Shading *xmlShading `xml:"shd"`
 }
 
 type xmlTblGrid struct {
@@ -122,20 +259,20 @@ type xmlGridCol struct {
 }
 
 type xmlTableRow struct {
-	Props *xmlRowProps  `xml:"trPr"`
+	Props *xmlRowProps   `xml:"trPr"`
 	Cells []xmlTableCell `xml:"tc"`
 }
 
 type xmlRowProps struct {
-	Header *xmlToggle   `xml:"tblHeader"`
-	Height *xmlValAttr  `xml:"trHeight"`
+	Header *xmlToggle  `xml:"tblHeader"`
+	Height *xmlValAttr `xml:"trHeight"`
 }
 
 type xmlTableCell struct {
 	Props      *xmlCellProps  `xml:"tcPr"`
 	Paragraphs []xmlParagraph `xml:"p"`
 	// nested tables parsed via custom UnmarshalXML on xmlTableCell
-	Tables     []xmlTable     `xml:"tbl"`
+	Tables []xmlTable `xml:"tbl"`
 }
 
 type xmlCellProps struct {
@@ -189,6 +326,36 @@ type xmlMarEdge struct {
 	W string `xml:"w,attr"`
 }
 
+type xmlSectionProps struct {
+	Size    *xmlPageSize    `xml:"pgSz"`
+	Margins *xmlPageMargins `xml:"pgMar"`
+	Headers []xmlSectionRef `xml:"headerReference"`
+	Footers []xmlSectionRef `xml:"footerReference"`
+}
+
+type xmlSectionRef struct {
+	Type string `xml:"type,attr"`
+	ID   string `xml:"id,attr"`
+}
+
+type xmlPageSize struct {
+	Width       string `xml:"w,attr"`
+	Height      string `xml:"h,attr"`
+	Orientation string `xml:"orient,attr"`
+}
+
+type xmlPageMargins struct {
+	Top    string `xml:"top,attr"`
+	Right  string `xml:"right,attr"`
+	Bottom string `xml:"bottom,attr"`
+	Left   string `xml:"left,attr"`
+}
+
+type imageResource struct {
+	Data   []byte
+	Format ir.ImageFormat
+}
+
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
@@ -197,7 +364,7 @@ type xmlMarEdge struct {
 // Body children (w:p, w:tbl) are handled in order; unknown elements skipped.
 const wNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
-func parseDocument(xmlBytes []byte, doc *ir.Document) error {
+func parseDocument(xmlBytes []byte, doc *ir.Document, images map[string]imageResource, hyperlinks map[string]string, headers, footers map[string]*ir.HeaderFooter, styleNumbering map[string]*ir.NumberingRef, footnotes map[string]ir.Footnote) error {
 	dec := xml.NewDecoder(bytes.NewReader(xmlBytes))
 	if err := advanceToNS(dec, wNS, "document"); err != nil {
 		return fmt.Errorf("ooxml: could not find <w:document>: %w", err)
@@ -207,9 +374,57 @@ func parseDocument(xmlBytes []byte, doc *ir.Document) error {
 	}
 
 	section := ir.Section{}
-	ctx := &parseCtx{}
-	if err := parseBlocks(dec, "body", &section.Blocks, ctx); err != nil {
-		return err
+	ctx := &parseCtx{section: &section, images: images, hyperlinks: hyperlinks, headers: headers, footers: footers, styleNumbering: styleNumbering, footnotes: footnotes}
+	for {
+		token, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("ooxml: read body: %w", err)
+		}
+		switch element := token.(type) {
+		case xml.StartElement:
+			switch element.Name.Local {
+			case "p":
+				var paragraph xmlParagraph
+				if err := dec.DecodeElement(&paragraph, &element); err != nil {
+					return err
+				}
+				section.Blocks = append(section.Blocks, convertParagraphBlocks(paragraph, ctx)...)
+				if paragraph.Props != nil && paragraph.Props.Section != nil {
+					applySectionProps(&section, paragraph.Props.Section, ctx)
+					doc.Sections = append(doc.Sections, section)
+					section = ir.Section{}
+					ctx.section = &section
+				}
+			case "tbl":
+				var table xmlTable
+				if err := dec.DecodeElement(&table, &element); err != nil {
+					return err
+				}
+				section.Blocks = append(section.Blocks, convertTable(table, ctx))
+			case "sectPr":
+				var properties xmlSectionProps
+				if err := dec.DecodeElement(&properties, &element); err != nil {
+					return err
+				}
+				applySectionProps(&section, &properties, ctx)
+			case "sdt", "sdtContent", "customXml", "ins":
+				if err := parseBlocks(dec, element.Name.Local, &section.Blocks, ctx); err != nil {
+					return err
+				}
+			default:
+				if err := dec.Skip(); err != nil {
+					return err
+				}
+			}
+		case xml.EndElement:
+			if element.Name.Local == "body" {
+				doc.Sections = append(doc.Sections, section)
+				return nil
+			}
+		}
 	}
 	doc.Sections = append(doc.Sections, section)
 	return nil
@@ -217,8 +432,16 @@ func parseDocument(xmlBytes []byte, doc *ir.Document) error {
 
 // parseCtx carries counters used for block ID generation.
 type parseCtx struct {
-	paraSeq  int
-	tableSeq int
+	paraSeq        int
+	tableSeq       int
+	imageSeq       int
+	section        *ir.Section
+	images         map[string]imageResource
+	hyperlinks     map[string]string
+	headers        map[string]*ir.HeaderFooter
+	footers        map[string]*ir.HeaderFooter
+	styleNumbering map[string]*ir.NumberingRef
+	footnotes      map[string]ir.Footnote
 }
 
 func (c *parseCtx) nextParaID() string {
@@ -228,6 +451,11 @@ func (c *parseCtx) nextParaID() string {
 func (c *parseCtx) nextTableID() string {
 	c.tableSeq++
 	return fmt.Sprintf("t%d", c.tableSeq)
+}
+
+func (c *parseCtx) nextImageID() string {
+	c.imageSeq++
+	return fmt.Sprintf("image%d", c.imageSeq)
 }
 
 // advanceToNS consumes tokens until a StartElement with the given namespace
@@ -266,13 +494,23 @@ func parseBlocks(dec *xml.Decoder, parentLocal string, blocks *[]ir.Block, ctx *
 				if err := dec.DecodeElement(&xp, &t); err != nil {
 					return err
 				}
-				*blocks = append(*blocks, convertParagraph(xp, ctx.nextParaID()))
+				*blocks = append(*blocks, convertParagraphBlocks(xp, ctx)...)
 			case "tbl":
 				var xt xmlTable
 				if err := dec.DecodeElement(&xt, &t); err != nil {
 					return err
 				}
 				*blocks = append(*blocks, convertTable(xt, ctx))
+			case "sectPr":
+				var properties xmlSectionProps
+				if err := dec.DecodeElement(&properties, &t); err != nil {
+					return err
+				}
+				applySectionProps(ctx.section, &properties, ctx)
+			case "sdt", "sdtContent", "customXml", "ins":
+				if err := parseBlocks(dec, t.Name.Local, blocks, ctx); err != nil {
+					return err
+				}
 			default:
 				if err := dec.Skip(); err != nil {
 					return err
@@ -286,18 +524,180 @@ func parseBlocks(dec *xml.Decoder, parentLocal string, blocks *[]ir.Block, ctx *
 	}
 }
 
-func convertParagraph(xp xmlParagraph, id string) *ir.Paragraph {
+func applySectionProps(section *ir.Section, properties *xmlSectionProps, context *parseCtx) {
+	if section == nil || properties == nil {
+		return
+	}
+	if properties.Size != nil {
+		section.Properties.Width = twipAttr(properties.Size.Width)
+		section.Properties.Height = twipAttr(properties.Size.Height)
+		if properties.Size.Orientation == "landscape" {
+			section.Properties.Orientation = ir.Landscape
+		}
+	}
+	if properties.Margins != nil {
+		section.Properties.MarginTop = twipAttr(properties.Margins.Top)
+		section.Properties.MarginRight = twipAttr(properties.Margins.Right)
+		section.Properties.MarginBottom = twipAttr(properties.Margins.Bottom)
+		section.Properties.MarginLeft = twipAttr(properties.Margins.Left)
+	}
+	section.Header = preferredHeaderFooter(properties.Headers, context.headers)
+	section.Footer = preferredHeaderFooter(properties.Footers, context.footers)
+}
+
+func preferredHeaderFooter(references []xmlSectionRef, parts map[string]*ir.HeaderFooter) *ir.HeaderFooter {
+	for _, preferred := range []string{"default", "first", "even"} {
+		for _, reference := range references {
+			if reference.Type == preferred && parts[reference.ID] != nil {
+				value := *parts[reference.ID]
+				switch preferred {
+				case "first":
+					value.Kind = ir.HeaderFooterFirst
+				case "even":
+					value.Kind = ir.HeaderFooterEven
+				default:
+					value.Kind = ir.HeaderFooterDefault
+				}
+				return &value
+			}
+		}
+	}
+	return nil
+}
+
+func parseHeaderFooter(content []byte, root string, kind ir.HeaderFooterKind) (*ir.HeaderFooter, error) {
+	decoder := xml.NewDecoder(bytes.NewReader(content))
+	if err := advanceToNS(decoder, wNS, root); err != nil {
+		return nil, err
+	}
+	value := &ir.HeaderFooter{Kind: kind}
+	context := &parseCtx{}
+	if err := parseBlocks(decoder, root, &value.Blocks, context); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func convertParagraph(xp xmlParagraph, id string, context *parseCtx) *ir.Paragraph {
 	p := &ir.Paragraph{ID: id}
 	if xp.Props != nil {
+		if xp.Props.Style != nil {
+			p.Style = xp.Props.Style.Val
+		}
+		if xp.Props.Numbering != nil && xp.Props.Numbering.ID != nil {
+			level := 0
+			if xp.Props.Numbering.Level != nil {
+				level, _ = strconv.Atoi(xp.Props.Numbering.Level.Val)
+			}
+			p.Numbering = &ir.NumberingRef{ID: xp.Props.Numbering.ID.Val, Level: level}
+		}
 		applyParaProps(&p.Para, xp.Props)
 	}
+	if p.Numbering == nil && p.Style != "" && context.styleNumbering[p.Style] != nil {
+		value := *context.styleNumbering[p.Style]
+		p.Numbering = &value
+	}
 	for _, xr := range xp.Runs {
-		p.Runs = append(p.Runs, convertRun(xr))
+		p.Runs = append(p.Runs, convertRun(xr, context))
+		if xr.FootnoteReference != nil {
+			if footnote, ok := context.footnotes[xr.FootnoteReference.ID]; ok {
+				p.Footnotes = append(p.Footnotes, footnote)
+			}
+		}
 	}
 	return p
 }
 
-func convertRun(xr xmlRun) ir.Run {
+func convertParagraphBlocks(paragraph xmlParagraph, context *parseCtx) []ir.Block {
+	blocks := make([]ir.Block, 0, 1)
+	if paragraph.Props != nil || paragraphHasText(paragraph) || !paragraphHasDrawing(paragraph) {
+		blocks = append(blocks, convertParagraph(paragraph, context.nextParaID(), context))
+	}
+	for _, run := range paragraph.Runs {
+		for _, drawing := range run.Drawings {
+			if image := convertDrawing(drawing, context); image != nil {
+				blocks = append(blocks, image)
+			}
+		}
+	}
+	for _, bookmark := range paragraph.Bookmarks {
+		if bookmark.Name != "" {
+			blocks = append(blocks, &ir.Bookmark{ID: bookmark.ID, Name: bookmark.Name})
+		}
+	}
+	return blocks
+}
+
+func paragraphHasText(paragraph xmlParagraph) bool {
+	for _, run := range paragraph.Runs {
+		if len(run.Text) > 0 || len(run.Breaks) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func paragraphHasDrawing(paragraph xmlParagraph) bool {
+	for _, run := range paragraph.Runs {
+		if len(run.Drawings) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func convertDrawing(drawing xmlDrawing, context *parseCtx) *ir.Image {
+	container := drawing.Inline
+	float := ir.FloatNone
+	if container == nil {
+		container = drawing.Anchor
+		float = drawingFloat(container)
+	}
+	if container == nil {
+		return nil
+	}
+	resource, ok := context.images[container.Graphic.Data.Picture.BlipFill.Blip.Embed]
+	if !ok {
+		return nil
+	}
+	image := &ir.Image{ID: context.nextImageID(), Data: resource.Data, Format: resource.Format, Float: float}
+	if container.DocPr != nil {
+		image.Alt = container.DocPr.Description
+		if image.Alt == "" {
+			image.Alt = container.DocPr.Name
+		}
+	}
+	if container.Extent != nil {
+		image.Width = emuAttr(container.Extent.CX)
+		image.Height = emuAttr(container.Extent.CY)
+	}
+	return image
+}
+
+func drawingFloat(container *xmlDrawingContainer) ir.FloatMode {
+	if container.PositionH != nil {
+		switch container.PositionH.Align {
+		case "right", "outside":
+			return ir.FloatRight
+		case "left", "inside":
+			return ir.FloatLeft
+		}
+	}
+	for _, wrap := range []*xmlDrawingWrap{container.WrapSquare, container.WrapTight, container.WrapThrough} {
+		if wrap == nil {
+			continue
+		}
+		switch wrap.Text {
+		case "right":
+			return ir.FloatRight
+		case "left":
+			return ir.FloatLeft
+		}
+	}
+	return ir.FloatLeft
+}
+
+func convertRun(xr xmlRun, context *parseCtx) ir.Run {
 	var run ir.Run
 	for _, t := range xr.Text {
 		run.Text += t.Value
@@ -307,6 +707,13 @@ func convertRun(xr xmlRun) ir.Run {
 	}
 	if xr.Props != nil {
 		applyRunProps(&run.Attrs, xr.Props)
+	}
+	if xr.HyperlinkID != "" {
+		if target := context.hyperlinks[xr.HyperlinkID]; target != "" {
+			run.Hyperlink = &ir.Hyperlink{URL: target}
+		}
+	} else if xr.HyperlinkAnchor != "" {
+		run.Hyperlink = &ir.Hyperlink{Bookmark: xr.HyperlinkAnchor}
 	}
 	return run
 }
@@ -367,6 +774,14 @@ func applyRunProps(a *ir.RunAttrs, p *xmlRunProps) {
 	if p.Highlight != nil && p.Highlight.Val != "" {
 		a.Highlight = highlightFromName(p.Highlight.Val)
 	}
+	if p.Spacing != nil {
+		if twentieths, err := strconv.ParseFloat(p.Spacing.Val, 64); err == nil {
+			a.Tracking = twentieths / 20
+		}
+	}
+	if p.Language != nil {
+		a.Language = p.Language.Val
+	}
 }
 
 func applyParaProps(a *ir.ParaAttrs, p *xmlParaProps) {
@@ -402,6 +817,25 @@ func applyParaProps(a *ir.ParaAttrs, p *xmlParaProps) {
 	}
 	if toggleOn(p.PageBreakBefore) {
 		a.PageBreakBefore = true
+	}
+	if p.OutlineLevel != nil {
+		if level, err := strconv.Atoi(p.OutlineLevel.Val); err == nil {
+			a.OutlineLevel = level
+		}
+	}
+	if p.Borders != nil {
+		a.Borders.Top = borderFrom(p.Borders.Top)
+		a.Borders.Bottom = borderFrom(p.Borders.Bottom)
+		a.Borders.Left = borderFrom(p.Borders.Left)
+		a.Borders.Right = borderFrom(p.Borders.Right)
+	}
+	if p.Shading != nil {
+		if color, ok := parseHexColor(p.Shading.Fill); ok {
+			a.Shading = color
+		}
+	}
+	if toggleOn(p.BiDi) {
+		a.BiDi = true
 	}
 }
 
@@ -532,7 +966,7 @@ func convertCell(xc xmlTableCell, ctx *parseCtx) ir.TableCell {
 		applyCellProps(&cell, xc.Props)
 	}
 	for _, xp := range xc.Paragraphs {
-		cell.Blocks = append(cell.Blocks, convertParagraph(xp, ctx.nextParaID()))
+		cell.Blocks = append(cell.Blocks, convertParagraphBlocks(xp, ctx)...)
 	}
 	for _, xt := range xc.Tables {
 		cell.Blocks = append(cell.Blocks, convertTable(xt, ctx))
@@ -666,6 +1100,14 @@ func twipAttr(s string) float64 {
 		return 0
 	}
 	return units.TwipsToPoints(v)
+}
+
+func emuAttr(value string) float64 {
+	emu, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0
+	}
+	return emu / 12700
 }
 
 func breakTypeFromVal(v string) ir.BreakType {

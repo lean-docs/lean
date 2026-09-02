@@ -1,6 +1,9 @@
 package typst_test
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/lean-docs/lean/pkg/export/typst"
@@ -247,13 +250,32 @@ func TestExportMultiColumn(t *testing.T) {
 
 // C8.16
 func TestExportCompilesWithTypst(t *testing.T) {
-	// Integration test: actual Typst compilation would require the typst binary.
-	// For now, just verify that the exporter produces non-empty output.
 	doc := ir.NewDocument()
+	doc.Sections[0].Properties = ir.PageProperties{Width: 595, Height: 842, MarginTop: 72, MarginRight: 72, MarginBottom: 72, MarginLeft: 72}
+	doc.Sections[0].Header = &ir.HeaderFooter{Blocks: []ir.Block{&ir.Paragraph{ID: "header", Runs: []ir.Run{{Text: "Header"}}}}}
+	doc.Sections[0].Footer = &ir.HeaderFooter{Blocks: []ir.Block{&ir.Paragraph{ID: "footer", Runs: []ir.Run{{Text: "Footer"}}}}}
+	doc.Sections[0].Columns = []ir.Column{{Width: 225, Spacing: 18}, {Width: 225}}
 	doc.Sections[0].Blocks = []ir.Block{
-		&ir.Paragraph{ID: "p1", Runs: []ir.Run{{Text: "compile check"}}},
+		&ir.Paragraph{ID: "heading", Style: "Heading1", Runs: []ir.Run{{Text: "Compile check"}}},
+		&ir.Paragraph{ID: "p1", Runs: []ir.Run{
+			{Text: "Bold", Attrs: ir.RunAttrs{Bold: true, Color: ir.Color{R: 10, G: 20, B: 30}, FontSize: 14}},
+			{Text: " link", Hyperlink: &ir.Hyperlink{URL: "https://example.com"}},
+		}, Footnotes: []ir.Footnote{{ID: "note", Blocks: []ir.Block{&ir.Paragraph{ID: "note-p", Runs: []ir.Run{{Text: "Footnote"}}}}}}},
+		&ir.Table{ID: "table", Rows: []ir.TableRow{{Cells: []ir.TableCell{
+			{ColSpan: 1, RowSpan: 1, Blocks: []ir.Block{&ir.Paragraph{ID: "cell-a", Runs: []ir.Run{{Text: "A"}}}}},
+			{ColSpan: 1, RowSpan: 1, Blocks: []ir.Block{&ir.Paragraph{ID: "cell-b", Runs: []ir.Run{{Text: "B"}}}}},
+		}}}},
 	}
 	out, err := typst.Export(doc)
 	require.NoError(t, err)
-	assert.NotEmpty(t, out, "output should be non-empty for compilation")
+	directory := t.TempDir()
+	source := filepath.Join(directory, "document.typ")
+	output := filepath.Join(directory, "document.pdf")
+	require.NoError(t, os.WriteFile(source, out, 0o600))
+	command := exec.Command("typst", "compile", source, output)
+	result, err := command.CombinedOutput()
+	require.NoError(t, err, string(result))
+	info, err := os.Stat(output)
+	require.NoError(t, err)
+	assert.Greater(t, info.Size(), int64(0))
 }

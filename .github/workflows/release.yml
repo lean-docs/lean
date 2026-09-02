@@ -1,0 +1,21 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    uses: whilesmart/workflows/.github/workflows/go-release.yml@v1.3.0
+    with:
+      go_version: '1.24'
+      typst_version: '0.14.2'
+      release_branch: main
+      verify_command: ./scripts/release-check.sh "$RELEASE_TAG"
+      build_command: ./scripts/build-release.sh "$RELEASE_TAG"
+      release_notes_file: docs/releases/{tag}.md
+      generate_checksums: false
+      assets: dist/*

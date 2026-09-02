@@ -5,6 +5,7 @@ import (
 
 	"github.com/lean-docs/lean/pkg/export/html"
 	"github.com/lean-docs/lean/pkg/ir"
+	htmlparser "github.com/lean-docs/lean/pkg/parser/html"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -173,8 +174,6 @@ func TestExportHyperlink(t *testing.T) {
 
 // C10.9
 func TestExportRoundTrip(t *testing.T) {
-	// TODO: Round-trip testing requires an HTML parser (not yet implemented).
-	// For now, verify that export produces valid output for a complex doc.
 	doc := ir.NewDocument()
 	doc.Sections[0].Blocks = []ir.Block{
 		&ir.Paragraph{ID: "h1", Style: "Heading1", Runs: []ir.Run{{Text: "Title"}}},
@@ -188,6 +187,17 @@ func TestExportRoundTrip(t *testing.T) {
 	s := string(out)
 	assert.Contains(t, s, "<h1>Title</h1>")
 	assert.Contains(t, s, "<strong>bold</strong>")
+	reopened, err := htmlparser.Parse(out)
+	require.NoError(t, err)
+	require.Len(t, reopened.Sections[0].Blocks, 2)
+	heading := reopened.Sections[0].Blocks[0].(*ir.Paragraph)
+	assert.Equal(t, "Heading1", heading.Style)
+	assert.Equal(t, "Title", heading.Runs[0].Text)
+	paragraph := reopened.Sections[0].Blocks[1].(*ir.Paragraph)
+	require.Len(t, paragraph.Runs, 2)
+	assert.Equal(t, "Normal ", paragraph.Runs[0].Text)
+	assert.Equal(t, "bold", paragraph.Runs[1].Text)
+	assert.True(t, paragraph.Runs[1].Attrs.Bold)
 }
 
 // C10.10

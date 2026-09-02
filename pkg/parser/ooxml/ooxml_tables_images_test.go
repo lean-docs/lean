@@ -1,6 +1,9 @@
 package ooxml
 
 import (
+	"archive/zip"
+	"bytes"
+	"io"
 	"testing"
 
 	"github.com/lean-docs/lean/pkg/ir"
@@ -11,10 +14,6 @@ import (
 // ---------------------------------------------------------------------------
 // Cluster 6 — OOXML Parser (Tables)
 // ---------------------------------------------------------------------------
-
-// TODO: All tests in this file will need proper .docx fixture files once the
-// parser is implemented. For now they call Parse(nil) and assert no error,
-// which will fail against ErrNotImplemented — serving as a skeleton for TDD.
 
 // C6.1 TestOOXMLSimpleTable - 2×2 table: correct row/cell count
 func TestOOXMLSimpleTable(t *testing.T) {
@@ -248,8 +247,7 @@ func runPara(text string) string {
 
 // C7.1 TestOOXMLInlineImagePNG - inline PNG bytes and format
 func TestOOXMLInlineImagePNG(t *testing.T) {
-	// TODO: Fixture with an inline drawing referencing a PNG in media/.
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "shp-inline-shape-access.docx"))
 	require.NoError(t, err)
 	require.NotNil(t, doc)
 
@@ -266,11 +264,10 @@ func TestOOXMLInlineImagePNG(t *testing.T) {
 
 // C7.2 TestOOXMLInlineImageJPEG - inline JPEG
 func TestOOXMLInlineImageJPEG(t *testing.T) {
-	// TODO: Fixture with an inline drawing referencing a JPEG in media/.
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "shp-inline-shape-access.docx"))
 	require.NoError(t, err)
 
-	img := firstImage(t, doc)
+	img := firstImageWithFormat(t, doc, ir.ImageJPEG)
 	assert.Equal(t, ir.ImageJPEG, img.Format)
 	assert.NotEmpty(t, img.Data)
 	// JPEG magic bytes (SOI marker)
@@ -281,21 +278,17 @@ func TestOOXMLInlineImageJPEG(t *testing.T) {
 
 // C7.3 TestOOXMLImageDimensions - EMUs to points
 func TestOOXMLImageDimensions(t *testing.T) {
-	// TODO: Fixture with cx="914400" cy="457200" (EMUs).
-	// 914400 EMU = 1 inch = 72 points; 457200 EMU = 0.5 inch = 36 points.
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "shp-inline-shape-access.docx"))
 	require.NoError(t, err)
 
 	img := firstImage(t, doc)
-	assert.InDelta(t, 72.0, img.Width, 0.1)
-	assert.InDelta(t, 36.0, img.Height, 0.1)
+	assert.InDelta(t, 140.0, img.Width, 0.1)
+	assert.InDelta(t, 56.0, img.Height, 0.1)
 }
 
 // C7.4 TestOOXMLImageRelationship - rId resolves to media file
 func TestOOXMLImageRelationship(t *testing.T) {
-	// TODO: Fixture where blip r:embed="rId5" resolves via
-	// word/_rels/document.xml.rels to word/media/image1.png.
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "shp-inline-shape-access.docx"))
 	require.NoError(t, err)
 
 	img := firstImage(t, doc)
@@ -305,18 +298,16 @@ func TestOOXMLImageRelationship(t *testing.T) {
 
 // C7.5 TestOOXMLImageAltText - descr attribute
 func TestOOXMLImageAltText(t *testing.T) {
-	// TODO: Fixture with docPr descr="Company Logo".
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "shp-inline-shape-access.docx"))
 	require.NoError(t, err)
 
 	img := firstImage(t, doc)
-	assert.Equal(t, "Company Logo", img.Alt)
+	assert.Equal(t, "Picture 1", img.Alt)
 }
 
 // C7.6 TestOOXMLFloatLeft - anchor with left wrap
 func TestOOXMLFloatLeft(t *testing.T) {
-	// TODO: Fixture with wp:anchor and wrapSquare wrapText="left".
-	doc, err := Parse(nil)
+	doc, err := Parse(libreOfficeFixture(t, "float-left.docx"))
 	require.NoError(t, err)
 
 	img := firstImage(t, doc)
@@ -325,8 +316,7 @@ func TestOOXMLFloatLeft(t *testing.T) {
 
 // C7.7 TestOOXMLFloatRight - right wrap
 func TestOOXMLFloatRight(t *testing.T) {
-	// TODO: Fixture with wp:anchor and wrapSquare wrapText="right".
-	doc, err := Parse(nil)
+	doc, err := Parse(libreOfficeFixture(t, "float-right.docx"))
 	require.NoError(t, err)
 
 	img := firstImage(t, doc)
@@ -335,28 +325,47 @@ func TestOOXMLFloatRight(t *testing.T) {
 
 // C7.8 TestOOXMLMissingImageGraceful - broken rId → placeholder, no panic
 func TestOOXMLMissingImageGraceful(t *testing.T) {
-	// TODO: Fixture with blip r:embed="rIdBROKEN" that does not exist in rels.
-	// The parser should not panic and should either skip the image or return a
-	// placeholder with empty data.
-	doc, err := Parse(nil)
+	doc, err := Parse(withMissingImage(t, libreOfficeFixture(t, "float-left.docx")))
 	require.NoError(t, err)
 
-	// If the parser emits an image block it should be safe to inspect.
+	imageCount := 0
 	for _, sec := range doc.Sections {
 		for _, b := range sec.Blocks {
-			if img, ok := b.(*ir.Image); ok {
-				// Placeholder image: may have empty data but must not be nil struct.
-				assert.NotNil(t, img)
-				// Accept either empty data (placeholder) or non-empty data.
-				_ = img.Data
+			if _, ok := b.(*ir.Image); ok {
+				imageCount++
 			}
 		}
 	}
+	assert.Zero(t, imageCount)
 }
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
+
+func withMissingImage(t *testing.T, source []byte) []byte {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(source), int64(len(source)))
+	require.NoError(t, err)
+	var output bytes.Buffer
+	writer := zip.NewWriter(&output)
+	for _, file := range reader.File {
+		stream, openErr := file.Open()
+		require.NoError(t, openErr)
+		content, readErr := io.ReadAll(stream)
+		require.NoError(t, readErr)
+		require.NoError(t, stream.Close())
+		if file.Name == "word/_rels/document.xml.rels" {
+			content = bytes.ReplaceAll(content, []byte("media/image1.png"), []byte("media/missing.png"))
+		}
+		destination, createErr := writer.CreateHeader(&file.FileHeader)
+		require.NoError(t, createErr)
+		_, writeErr := destination.Write(content)
+		require.NoError(t, writeErr)
+	}
+	require.NoError(t, writer.Close())
+	return output.Bytes()
+}
 
 // firstTable returns the first *ir.Table block found in the document.
 func firstTable(t *testing.T, doc *ir.Document) *ir.Table {
@@ -387,5 +396,18 @@ func firstImage(t *testing.T, doc *ir.Document) *ir.Image {
 		}
 	}
 	t.Fatal("no Image block found in document")
+	return nil
+}
+
+func firstImageWithFormat(t *testing.T, doc *ir.Document, format ir.ImageFormat) *ir.Image {
+	t.Helper()
+	for _, section := range doc.Sections {
+		for _, block := range section.Blocks {
+			if image, ok := block.(*ir.Image); ok && image.Format == format {
+				return image
+			}
+		}
+	}
+	t.Fatalf("no image found with format %d", format)
 	return nil
 }

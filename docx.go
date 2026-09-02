@@ -81,36 +81,23 @@ func inspectDOCX(input []byte) (FidelityReport, error) {
 		}
 	}
 	markers := map[string]string{
-		"<w:drawing":    "images",
-		"<w:hyperlink":  "hyperlinks",
-		"<w:numPr":      "numbering",
-		"<w:pStyle":     "styles",
-		"<w:ins":        "tracked-changes",
-		"<w:del":        "tracked-changes",
-		"<w:sdt":        "content-controls",
-		"<w:fldChar":    "fields",
-		"<w:highlight":  "highlighting",
-		"<w:lang":       "run-language",
-		"<w:pBdr":       "paragraph-borders",
-		"<w:shd":        "shading",
-		"<w:bidi":       "bidirectional-text",
-		"<w:outlineLvl": "outline-levels",
-		"<w:tblBorders": "table-borders",
-		"<w:tcBorders":  "table-borders",
-		"<w:tcMar":      "cell-padding",
-		"<w:vMerge":     "row-spans",
-		"<w:vAlign":     "cell-alignment",
-		"<w:trHeight":   "row-heights",
-		"<w:tblHeader":  "header-rows",
-		"w:orient=":     "page-orientation",
+		"<w:sdt":     "content-controls",
+		"<w:fldChar": "fields",
+		"<w:vMerge":  "row-spans",
 	}
 	for marker, feature := range markers {
 		if strings.Contains(documentXML, marker) {
 			report.addUnsupported(feature)
 		}
 	}
-	if hasElementWithin(documentXML, "rPr", "spacing") {
-		report.addUnsupported("character-spacing")
+	if hasElementWithin(documentXML, "rPr", "shd") {
+		report.addUnsupported("run-shading")
+	}
+	if hasElementWithin(documentXML, "rPr", "rStyle") {
+		report.addUnsupported("character-style-references")
+	}
+	if hasElementWithin(documentXML, "body", "ins") || hasElementWithin(documentXML, "body", "del") {
+		report.addUnsupported("tracked-changes")
 	}
 	if hasNonDefaultTableStyle(documentXML) {
 		report.addUnsupported("table-styles")
@@ -199,16 +186,7 @@ func inspectDocument(document *ir.Document) FidelityReport {
 		report.addUnsupported("document")
 		return report
 	}
-	if len(document.Styles.Named) > 0 {
-		report.addUnsupported("styles")
-	}
-	if len(document.Styles.Numbering) > 0 {
-		report.addUnsupported("numbering")
-	}
 	for _, section := range document.Sections {
-		if section.Properties.Orientation != ir.Portrait {
-			report.addUnsupported("page-orientation")
-		}
 		if len(section.Columns) > 0 {
 			report.addUnsupported("page-columns")
 		}
@@ -229,74 +207,50 @@ func walkDocumentBlocks(blocks []ir.Block, report *FidelityReport) {
 	for _, block := range blocks {
 		switch value := block.(type) {
 		case *ir.Image:
-			report.addUnsupported("images")
+			if len(value.Data) == 0 || value.Width <= 0 || value.Height <= 0 {
+				report.addUnsupported("images")
+			}
 		case *ir.Bookmark:
 			report.addUnsupported("bookmarks")
 		case *ir.Paragraph:
-			if value.Style != "" {
-				report.addUnsupported("styles")
-			}
-			if value.Numbering != nil {
-				report.addUnsupported("numbering")
-			}
 			if len(value.Footnotes) > 0 {
 				report.addUnsupported("footnotes")
 			}
-			if value.Para.OutlineLevel != 0 {
-				report.addUnsupported("outline-levels")
-			}
-			if value.Para.Borders != (ir.ParaBorders{}) {
-				report.addUnsupported("paragraph-borders")
-			}
-			if value.Para.Shading != (ir.Color{}) {
-				report.addUnsupported("shading")
-			}
-			if value.Para.BiDi {
-				report.addUnsupported("bidirectional-text")
-			}
 			for _, run := range value.Runs {
-				if run.Hyperlink != nil {
-					report.addUnsupported("hyperlinks")
-				}
-				if run.Attrs.Highlight != (ir.Color{}) {
+				if run.Attrs.Highlight != (ir.Color{}) && !supportedHighlight(run.Attrs.Highlight) {
 					report.addUnsupported("highlighting")
-				}
-				if run.Attrs.Tracking != 0 {
-					report.addUnsupported("character-spacing")
-				}
-				if run.Attrs.Language != "" {
-					report.addUnsupported("run-language")
 				}
 			}
 		case *ir.Table:
 			if value.Style != "" && value.Style != "TableNormal" {
 				report.addUnsupported("table-styles")
 			}
-			if value.Align != ir.AlignLeft || value.Borders != (ir.TableBorders{}) || value.Shading != (ir.Color{}) {
-				report.addUnsupported("table-formatting")
-			}
 			for _, row := range value.Rows {
-				if row.IsHeader {
-					report.addUnsupported("header-rows")
-				}
-				if row.Height != nil {
-					report.addUnsupported("row-heights")
-				}
 				for _, cell := range row.Cells {
 					if cell.RowSpan > 1 {
 						report.addUnsupported("row-spans")
-					}
-					if cell.Borders != (ir.CellBorders{}) || cell.Shading != (ir.Color{}) || cell.Padding != (ir.Padding{}) {
-						report.addUnsupported("cell-formatting")
-					}
-					if cell.VAlign != ir.VAlignTop {
-						report.addUnsupported("cell-alignment")
 					}
 					walkDocumentBlocks(cell.Blocks, report)
 				}
 			}
 		}
 	}
+}
+
+func supportedHighlight(color ir.Color) bool {
+	for _, supported := range []ir.Color{
+		{R: 255, G: 255, B: 0}, {R: 0, G: 255, B: 0}, {R: 0, G: 255, B: 255},
+		{R: 255, G: 0, B: 255}, {R: 0, G: 0, B: 255}, {R: 255, G: 0, B: 0},
+		{R: 0, G: 0, B: 0}, {R: 255, G: 255, B: 255}, {R: 0, G: 0, B: 139},
+		{R: 0, G: 139, B: 139}, {R: 0, G: 100, B: 0}, {R: 139, G: 0, B: 139},
+		{R: 139, G: 0, B: 0}, {R: 128, G: 128, B: 0}, {R: 169, G: 169, B: 169},
+		{R: 211, G: 211, B: 211},
+	} {
+		if color == supported {
+			return true
+		}
+	}
+	return false
 }
 
 func (report *FidelityReport) addUnsupported(feature string) {

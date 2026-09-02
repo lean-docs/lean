@@ -5,6 +5,7 @@ import (
 
 	"github.com/lean-docs/lean/pkg/export/md"
 	"github.com/lean-docs/lean/pkg/ir"
+	mdparser "github.com/lean-docs/lean/pkg/parser/md"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -186,8 +187,6 @@ func TestExportCodeBlock(t *testing.T) {
 
 // C9.11
 func TestExportRoundTrip(t *testing.T) {
-	// TODO: Round-trip testing requires an MD parser (not yet implemented).
-	// For now, verify that export produces valid output for a complex doc.
 	doc := ir.NewDocument()
 	doc.Sections[0].Blocks = []ir.Block{
 		&ir.Paragraph{ID: "h1", Style: "Heading1", Runs: []ir.Run{{Text: "Title"}}},
@@ -202,4 +201,16 @@ func TestExportRoundTrip(t *testing.T) {
 	s := string(out)
 	assert.Contains(t, s, "# Title")
 	assert.Contains(t, s, "**bold**")
+	reopened, err := mdparser.Parse(out)
+	require.NoError(t, err)
+	require.Len(t, reopened.Sections[0].Blocks, 2)
+	heading := reopened.Sections[0].Blocks[0].(*ir.Paragraph)
+	assert.Equal(t, "Heading1", heading.Style)
+	assert.Equal(t, "Title", heading.Runs[0].Text)
+	paragraph := reopened.Sections[0].Blocks[1].(*ir.Paragraph)
+	require.Len(t, paragraph.Runs, 3)
+	assert.Equal(t, "Normal ", paragraph.Runs[0].Text)
+	assert.Equal(t, "bold", paragraph.Runs[1].Text)
+	assert.True(t, paragraph.Runs[1].Attrs.Bold)
+	assert.Equal(t, " text", paragraph.Runs[2].Text)
 }

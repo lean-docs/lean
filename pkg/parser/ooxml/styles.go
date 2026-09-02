@@ -2,6 +2,7 @@ package ooxml
 
 import (
 	"encoding/xml"
+	"strconv"
 
 	"github.com/lean-docs/lean/pkg/ir"
 )
@@ -56,4 +57,23 @@ func parseStyles(content []byte, document *ir.Document) error {
 		document.Styles.Named[value.ID] = style
 	}
 	return nil
+}
+
+func parseStyleNumbering(content []byte) (map[string]*ir.NumberingRef, error) {
+	var source xmlStyles
+	if err := xml.Unmarshal(content, &source); err != nil {
+		return nil, err
+	}
+	references := make(map[string]*ir.NumberingRef)
+	for _, style := range source.Styles {
+		if style.Paragraph == nil || style.Paragraph.Numbering == nil || style.Paragraph.Numbering.ID == nil {
+			continue
+		}
+		level := 0
+		if style.Paragraph.Numbering.Level != nil {
+			level, _ = strconv.Atoi(style.Paragraph.Numbering.Level.Val)
+		}
+		references[style.ID] = &ir.NumberingRef{ID: style.Paragraph.Numbering.ID.Val, Level: level}
+	}
+	return references, nil
 }

@@ -302,6 +302,19 @@ func TestSaveDOCXRoundTripsNamedStyles(t *testing.T) {
 	assert.Equal(t, "Heading1", paragraph.Style)
 }
 
+func TestOpenDOCXReadsDefaultHeaderAndFooter(t *testing.T) {
+	content, err := os.ReadFile("testdata/fixtures/ooxml/python-docx/hdr-header-footer.docx")
+	require.NoError(t, err)
+	document, report, err := lean.OpenDOCX(content)
+	require.NoError(t, err)
+	assert.Contains(t, report.Unsupported, "headers")
+	assert.Contains(t, report.Unsupported, "footers")
+	require.NotNil(t, document.Sections[0].Header)
+	require.NotNil(t, document.Sections[0].Footer)
+	assert.NotEmpty(t, document.Sections[0].Header.Blocks)
+	assert.NotEmpty(t, document.Sections[0].Footer.Blocks)
+}
+
 func floatPointer(value float64) *float64 {
 	return &value
 }

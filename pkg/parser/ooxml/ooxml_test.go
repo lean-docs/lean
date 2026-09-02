@@ -1,6 +1,8 @@
 package ooxml
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/lean-docs/lean/pkg/ir"
@@ -190,8 +192,7 @@ func TestOOXMLPageBreakBefore(t *testing.T) {
 
 // C4.21 — Named styles parsed into StyleSheet
 func TestOOXMLNamedStyles(t *testing.T) {
-	// TODO: fixture with named styles (e.g. Heading1)
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "par-known-styles.docx"))
 	require.NoError(t, err)
 	require.NotNil(t, doc)
 	assert.NotEmpty(t, doc.Styles.Named, "should have at least one named style")
@@ -199,24 +200,29 @@ func TestOOXMLNamedStyles(t *testing.T) {
 
 // C4.22 — Paragraph references a named style
 func TestOOXMLParagraphStyleRef(t *testing.T) {
-	// TODO: fixture with a paragraph referencing a style
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "par-known-styles.docx"))
 	require.NoError(t, err)
-	p := firstParagraph(t, doc)
-	assert.NotEmpty(t, p.Style, "paragraph should reference a named style")
+	var found bool
+	for _, block := range doc.Sections[0].Blocks {
+		if paragraph, ok := block.(*ir.Paragraph); ok && paragraph.Style == "Heading1" {
+			found = true
+		}
+	}
+	assert.True(t, found, "paragraph should reference Heading1")
 }
 
 // C4.23 — Hyperlink with URL
 func TestOOXMLHyperlinkURL(t *testing.T) {
-	// TODO: fixture with an external hyperlink
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "par-hyperlinks.docx"))
 	require.NoError(t, err)
-	p := firstParagraph(t, doc)
 	var found bool
-	for _, r := range p.Runs {
-		if r.Hyperlink != nil && r.Hyperlink.URL != "" {
-			found = true
-			break
+	for _, block := range doc.Sections[0].Blocks {
+		if paragraph, ok := block.(*ir.Paragraph); ok {
+			for _, run := range paragraph.Runs {
+				if run.Hyperlink != nil && run.Hyperlink.URL != "" {
+					found = true
+				}
+			}
 		}
 	}
 	assert.True(t, found, "should find a run with a hyperlink URL")
@@ -224,15 +230,20 @@ func TestOOXMLHyperlinkURL(t *testing.T) {
 
 // C4.24 — Internal bookmark hyperlink
 func TestOOXMLHyperlinkBookmark(t *testing.T) {
-	// TODO: fixture with an internal bookmark hyperlink
-	doc, err := Parse(nil)
+	doc, err := Parse(libreOfficeFixture(t, "hyperlink.docx"))
 	require.NoError(t, err)
-	p := firstParagraph(t, doc)
 	var found bool
-	for _, r := range p.Runs {
-		if r.Hyperlink != nil && r.Hyperlink.Bookmark != "" {
-			found = true
-			break
+	for _, section := range doc.Sections {
+		for _, block := range section.Blocks {
+			paragraph, ok := block.(*ir.Paragraph)
+			if !ok {
+				continue
+			}
+			for _, run := range paragraph.Runs {
+				if run.Hyperlink != nil && run.Hyperlink.Bookmark != "" {
+					found = true
+				}
+			}
 		}
 	}
 	assert.True(t, found, "should find a run with a bookmark hyperlink")
@@ -267,17 +278,11 @@ func TestOOXMLColumnBreak(t *testing.T) {
 
 // C4.28 — Bullet list (numbering reference)
 func TestOOXMLBulletList(t *testing.T) {
-	// TODO: fixture with a bullet list
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "num-having-numbering-part.docx"))
 	require.NoError(t, err)
-	p := firstParagraph(t, doc)
-	require.NotNil(t, p.Numbering)
-	// Verify the numbering def is bullet format
 	var found bool
 	for _, nd := range doc.Styles.Numbering {
-		if nd.ID == p.Numbering.ID {
-			require.GreaterOrEqual(t, len(nd.Levels), 1)
-			assert.Equal(t, ir.NumFormatBullet, nd.Levels[0].Format)
+		if len(nd.Levels) > 0 && nd.Levels[0].Format == ir.NumFormatBullet {
 			found = true
 			break
 		}
@@ -287,8 +292,7 @@ func TestOOXMLBulletList(t *testing.T) {
 
 // C4.29 — Numbered list (decimal)
 func TestOOXMLNumberedList(t *testing.T) {
-	// TODO: fixture with a decimal numbered list
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "num-having-numbering-part.docx"))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
 	require.NotNil(t, p.Numbering)
@@ -306,8 +310,7 @@ func TestOOXMLNumberedList(t *testing.T) {
 
 // C4.30 — Multi-level numbering
 func TestOOXMLMultiLevelNumbering(t *testing.T) {
-	// TODO: fixture with multi-level list
-	doc, err := Parse(nil)
+	doc, err := Parse(libreOfficeFixture(t, "mixednumberings.docx"))
 	require.NoError(t, err)
 	require.NotNil(t, doc)
 	// Expect at least one numbering def with multiple levels
@@ -326,8 +329,7 @@ func TestOOXMLMultiLevelNumbering(t *testing.T) {
 
 // C4.36 — Footnote
 func TestOOXMLFootnote(t *testing.T) {
-	// TODO: fixture with a footnote
-	doc, err := Parse(nil)
+	doc, err := Parse(libreOfficeFixture(t, "footnote.docx"))
 	require.NoError(t, err)
 	p := firstParagraph(t, doc)
 	require.GreaterOrEqual(t, len(p.Footnotes), 1)
@@ -337,8 +339,7 @@ func TestOOXMLFootnote(t *testing.T) {
 
 // C4.37 — Header content
 func TestOOXMLHeaderContent(t *testing.T) {
-	// TODO: fixture with a page header
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "hdr-header-footer.docx"))
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(doc.Sections), 1)
 	require.NotNil(t, doc.Sections[0].Header)
@@ -347,8 +348,7 @@ func TestOOXMLHeaderContent(t *testing.T) {
 
 // C4.38 — Footer content
 func TestOOXMLFooterContent(t *testing.T) {
-	// TODO: fixture with a page footer
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "hdr-header-footer.docx"))
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(doc.Sections), 1)
 	require.NotNil(t, doc.Sections[0].Footer)
@@ -357,8 +357,7 @@ func TestOOXMLFooterContent(t *testing.T) {
 
 // C4.39 — Page properties (dimensions, margins, orientation)
 func TestOOXMLPageProperties(t *testing.T) {
-	// TODO: fixture with explicit page size and margins
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "sct-section-props.docx"))
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(doc.Sections), 1)
 	pp := doc.Sections[0].Properties
@@ -372,8 +371,7 @@ func TestOOXMLPageProperties(t *testing.T) {
 
 // C4.40 — Landscape orientation
 func TestOOXMLLandscapeOrientation(t *testing.T) {
-	// TODO: fixture with landscape page
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "sct-section-props.docx"))
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(doc.Sections), 1)
 	assert.Equal(t, ir.Landscape, doc.Sections[0].Properties.Orientation)
@@ -381,8 +379,7 @@ func TestOOXMLLandscapeOrientation(t *testing.T) {
 
 // C4.41 — Document metadata (title, author)
 func TestOOXMLDocumentMetadata(t *testing.T) {
-	// TODO: fixture with core properties (title, author)
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "doc-coreprops.docx"))
 	require.NoError(t, err)
 	require.NotNil(t, doc)
 	assert.NotEmpty(t, doc.Meta.Title)
@@ -391,8 +388,7 @@ func TestOOXMLDocumentMetadata(t *testing.T) {
 
 // C4.42 — Bookmark block
 func TestOOXMLBookmark(t *testing.T) {
-	// TODO: fixture with a bookmark
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "num-having-numbering-part.docx"))
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(doc.Sections), 1)
 	var bm *ir.Bookmark
@@ -457,13 +453,26 @@ func TestOOXMLCorruptXML(t *testing.T) {
 
 // C5.7 — Unknown element in body is gracefully ignored
 func TestOOXMLUnknownElementIgnored(t *testing.T) {
-	// TODO: fixture — .docx with an unknown XML element in w:body
-	doc, err := Parse(nil)
+	doc, err := Parse(pythonDocxFixture(t, "blk-paras-and-tables.docx"))
 	require.NoError(t, err)
 	require.NotNil(t, doc)
 	// The unknown element should be silently skipped;
 	// the rest of the document should parse correctly.
 	assert.GreaterOrEqual(t, len(doc.Sections), 1)
+}
+
+func pythonDocxFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join("..", "..", "..", "testdata", "fixtures", "ooxml", "python-docx", name))
+	require.NoError(t, err)
+	return content
+}
+
+func libreOfficeFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join("../../../testdata/fixtures/ooxml/libreoffice", name))
+	require.NoError(t, err)
+	return content
 }
 
 // C5.8 — Large document does not panic

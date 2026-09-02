@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Set up Typst
+        uses: typst-community/setup-typst@v5
+        with:
+          typst-version: 0.14.2
+
+      - name: Require a commit from main
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Validate release metadata
+        run: ./scripts/release-check.sh "$GITHUB_REF_NAME"
+
+      - name: Build and test
+        run: |
+          go build ./...
+          go vet ./...
+          go test -race -count=1 ./...
+
+      - name: Build release archives
+        run: ./scripts/build-release.sh "$GITHUB_REF_NAME"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          body_path: docs/releases/${{ github.ref_name }}.md
+          files: dist/*
+          prerelease: ${{ contains(github.ref_name, '-') }}

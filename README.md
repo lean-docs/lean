@@ -30,6 +30,23 @@ Lean also imports and exports CommonMark and HTML. It exports Typst for PDF,
 PNG, and SVG rendering. Tracked changes, fields, comments, headers, footers,
 footnotes, and mutation APIs remain outside the editable alpha profile.
 
+## Native Markdown files
+
+Use `OpenMarkdownSource` to open a UTF-8 Markdown file without converting its
+canonical source into the document representation. `Bytes` returns a copy of
+the original bytes, including a byte order mark, newline conventions,
+frontmatter, comments, reference links, and unsupported syntax.
+
+`RenderHTML` renders CommonMark with tables, task lists, strikethrough, and
+autolinks. Raw HTML and dangerous links are disabled. Rendering does not
+rewrite the source. Applications must isolate previews and control external
+resource loading and navigation.
+
+The existing Markdown parser and exporter remain conversion APIs. Applications
+must not use their normalized output as a lossless save of the original file.
+A visual editor needs source-preserving edits and a declared feature profile
+before it can replace native source editing.
+
 ## Quick Start
 
 ```bash

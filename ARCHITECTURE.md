@@ -137,9 +137,9 @@ native OOXML exporter.
 object owns those bytes; callers receive copies when reading them. Preview
 renders directly from the source syntax tree and cannot change the file.
 
-The source renderer uses CommonMark with GFM extensions and keeps raw HTML and
-dangerous links disabled. Applications isolate previews and decide how external
-resources and navigation are allowed. Preview policy does not remove source.
+The source renderer uses CommonMark with GFM extensions. It sanitizes raw HTML
+and removes scripts, inline styles, and dangerous links. Applications isolate
+previews and decide how external resources and navigation are allowed. Preview policy does not remove source.
 
 The normalized Markdown parser/exporter remains a format conversion path.
 Visual editing must preserve syntax outside the changed range and report

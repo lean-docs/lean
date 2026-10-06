@@ -38,9 +38,15 @@ the original bytes, including a byte order mark, newline conventions,
 frontmatter, comments, reference links, and unsupported syntax.
 
 `RenderHTML` renders CommonMark with tables, task lists, strikethrough, and
-autolinks. Raw HTML and dangerous links are disabled. Rendering does not
-rewrite the source. Applications must isolate previews and control external
+autolinks. Raw HTML is sanitized; scripts, inline styles, and dangerous links
+are removed. Rendering does not rewrite the source. Applications must isolate previews and control external
 resource loading and navigation.
+
+`RenderSyntaxHTML(CommonMark)` and `RenderSyntaxHTML(GitHubFlavoredMarkdown)`
+return syntax output for conversion and conformance checking. This output can
+contain unsafe HTML and must be sanitized before browser display.
+The CommonMark dialect follows 0.31.2; GFM adds the five published 0.29
+extensions. The older GFM base examples are not the CommonMark 0.31.2 contract.
 
 The existing Markdown parser and exporter remain conversion APIs. Applications
 must not use their normalized output as a lossless save of the original file.

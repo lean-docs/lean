@@ -12,3 +12,7 @@ The samples are unchanged; their input and expected output are separate files.
 
 Source: https://spec.commonmark.org/
 License: https://creativecommons.org/licenses/by-sa/4.0/
+
+unsafe-attributes.md is copied unchanged from bluemonday v1.0.27
+policies_test.go. It retains bluemonday's BSD 3-Clause license.
+https://github.com/microcosm-cc/bluemonday/blob/v1.0.27/policies_test.go

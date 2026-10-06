@@ -61,7 +61,7 @@ func TestMarkdownSourceRendersUpstreamFixtures(t *testing.T) {
 }
 
 func TestMarkdownSourceRejectsInvalidText(t *testing.T) {
-	for _, input := range [][]byte{{0xff}, {0}, {'a', 0, 'b'}} {
+	for _, input := range [][]byte{{0xff}} {
 		if _, err := lean.OpenMarkdownSource(input); err != lean.ErrInvalidMarkdown {
 			t.Fatalf("invalid text was accepted: %v", err)
 		}
@@ -98,8 +98,59 @@ func TestMarkdownSourceHidesUnsafePreviewContent(t *testing.T) {
 		if !bytes.Equal(document.Bytes(), source) {
 			t.Fatal("preview changed original source")
 		}
-		if name == "unsafe-links" && (!strings.Contains(string(rendered), `target="_blank"`) || !strings.Contains(string(rendered), `rel="noopener noreferrer"`)) {
-			t.Fatalf("links lack navigation isolation: %s", rendered)
+	}
+}
+
+func TestMarkdownPreviewSanitizesAttributesAndKeepsImages(t *testing.T) {
+	source, err := os.ReadFile("testdata/fixtures/markdown/unsafe-attributes.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := lean.OpenMarkdownSource(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := document.RenderHTML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(rendered)
+	for _, blocked := range []string{"style=", "onmouseover", "onmousemove", "onclick"} {
+		if strings.Contains(html, blocked) {
+			t.Fatalf("unsafe HTML attribute remains: %s", html)
 		}
+	}
+	if !strings.Contains(html, `<img src="http://example.org"`) || !strings.Contains(html, `target="_blank"`) || !strings.Contains(html, "noreferrer") {
+		t.Fatalf("image or link isolation missing: %s", html)
+	}
+	if !bytes.Equal(document.Bytes(), source) {
+		t.Fatal("sanitization changed source")
+	}
+	if _, err := document.RenderSyntaxHTML(lean.MarkdownDialect("unknown")); err == nil {
+		t.Fatal("unsupported dialect accepted")
+	}
+}
+
+func TestMarkdownSourcePreservesNULAndRendersReplacementCharacters(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/fixtures/markdown/table.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := bytes.Replace(fixture, []byte(" "), []byte{0}, 1)
+	document, err := lean.OpenMarkdownSource(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dialect := range []lean.MarkdownDialect{lean.CommonMark, lean.GitHubFlavoredMarkdown} {
+		html, err := document.RenderSyntaxHTML(dialect)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.ContainsRune(html, 0) || !strings.Contains(string(html), "\ufffd") {
+			t.Fatalf("NUL was not replaced in rendering: %q", html)
+		}
+	}
+	if !bytes.Equal(source, document.Bytes()) {
+		t.Fatal("NUL normalization changed canonical source")
 	}
 }

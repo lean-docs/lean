@@ -8,8 +8,9 @@ that informed them.
 ## Document IR
 
 The IR (intermediate representation) is the in-memory data structure that
-represents a document. Every parser produces it; every exporter consumes it.
-It is the single source of truth.
+represents a structured document. Conversion parsers produce it and exporters
+consume it. Native Markdown files retain their original source as the canonical
+representation; a normalized conversion must not silently replace that source.
 
 ### Model
 
@@ -29,7 +30,7 @@ Document
      └─ Image
 ```
 
-This mirrors how OOXML represents documents internally — paragraphs contain
+This mirrors how OOXML represents documents internally: paragraphs contain
 runs (`w:r`), and runs cannot nest. It also matches the Google Docs API model
 (Body → Paragraph → TextRun). The flat structure makes OOXML round-tripping
 lossless and keeps the parser/exporter logic straightforward.
@@ -42,7 +43,7 @@ can project a marks-based view on top of the flat IR when needed.
 
 ### Block IDs
 
-Every block carries a stable, unique ID. This is uncommon — OOXML, ProseMirror,
+Every block carries a stable, unique ID. This is uncommon. OOXML, ProseMirror,
 Slate, and Typst do not assign stable IDs to blocks. Lean does because:
 
 - Dirty tracking for incremental layout needs to know which blocks changed
@@ -63,7 +64,7 @@ Each layer can override properties from the layer below it. Lean models this
 chain explicitly. The `StyleSheet.ResolveStyle` function walks the `basedOn`
 chain and merges properties.
 
-Most document libraries skip this — `python-docx`, `docx-js`, and `go-docx`
+Most document libraries skip this. `python-docx`, `docx-js`, and `go-docx`
 all resolve styles partially or not at all. Getting this right is necessary
 for faithful document reproduction.
 
@@ -90,7 +91,7 @@ the IR and export cleanly out of it.
 ### OOXML (.docx)
 
 .docx is an important import/export target but not the definition of
-correctness. A .docx file is a ZIP archive containing XML files — the main
+correctness. A .docx file is a ZIP archive containing XML files. The main
 content lives in `word/document.xml`, with styles, numbering, themes,
 headers, footers, and media as separate parts linked by relationships.
 
@@ -125,10 +126,25 @@ Integration options, in order of preference:
 The CLI approach is used initially. WASM embedding is planned for
 zero-dependency distribution.
 
-Typst cannot produce .docx files — that path is handled entirely by Lean's
+Typst cannot produce .docx files. That path is handled entirely by Lean's
 native OOXML exporter.
 
 ---
+
+## Native Markdown source
+
+`OpenMarkdownSource` validates and copies canonical UTF-8 source. The source
+object owns those bytes; callers receive copies when reading them. Preview
+renders directly from the source syntax tree and cannot change the file.
+
+The source renderer uses CommonMark with GFM extensions. It sanitizes raw HTML
+and removes scripts, inline styles, and dangerous links. Applications isolate
+previews and decide how external resources and navigation are allowed. Preview policy does not remove source.
+
+The normalized Markdown parser/exporter remains a format conversion path.
+Visual editing must preserve syntax outside the changed range and report
+unsupported edits before replacing a canonical source file. Source-preserving
+operations are the next boundary for both human and agent editing.
 
 ## Collaboration
 
@@ -152,7 +168,7 @@ All dependencies must be MIT, BSD, or Apache 2.0.
 | `golang.org/x/net/html` | HTML parser |
 | `github.com/stretchr/testify` | Test assertions |
 
-OOXML parsing and generation is implemented from scratch — existing Go
+OOXML parsing and generation is implemented from scratch. Existing Go
 libraries are either commercially licensed or too limited.
 
 PDF/PNG rendering is handled by Typst (external tool, not a Go dependency).

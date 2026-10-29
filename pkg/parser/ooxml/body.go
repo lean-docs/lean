@@ -730,26 +730,26 @@ func toggleOn(t *xmlToggle) bool {
 }
 
 func applyRunProps(a *ir.RunAttrs, p *xmlRunProps) {
-	if toggleOn(p.Bold) {
-		a.Bold = true
+	if p.Bold != nil {
+		a.SetBold(toggleOn(p.Bold))
 	}
-	if toggleOn(p.Italic) {
-		a.Italic = true
+	if p.Italic != nil {
+		a.SetItalic(toggleOn(p.Italic))
 	}
 	if p.Underline != nil {
-		a.Underline = underlineFromVal(p.Underline.Val)
+		a.SetUnderline(underlineFromVal(p.Underline.Val))
 	}
-	if toggleOn(p.Strike) {
-		a.Strike = true
+	if p.Strike != nil {
+		a.SetStrike(toggleOn(p.Strike))
 	}
-	if toggleOn(p.SmallCaps) {
-		a.SmallCaps = true
+	if p.SmallCaps != nil {
+		a.SetSmallCaps(toggleOn(p.SmallCaps))
 	}
-	if toggleOn(p.AllCaps) {
-		a.AllCaps = true
+	if p.AllCaps != nil {
+		a.SetAllCaps(toggleOn(p.AllCaps))
 	}
 	if p.Vert != nil {
-		a.Baseline = baselineFromVal(p.Vert.Val)
+		a.SetBaseline(baselineFromVal(p.Vert.Val))
 	}
 	if p.Size != nil {
 		if hp, err := strconv.ParseFloat(p.Size.Val, 64); err == nil {
@@ -776,7 +776,7 @@ func applyRunProps(a *ir.RunAttrs, p *xmlRunProps) {
 	}
 	if p.Spacing != nil {
 		if twentieths, err := strconv.ParseFloat(p.Spacing.Val, 64); err == nil {
-			a.Tracking = twentieths / 20
+			a.SetTracking(twentieths / 20)
 		}
 	}
 	if p.Language != nil {
@@ -1120,18 +1120,46 @@ func breakTypeFromVal(v string) ir.BreakType {
 	return ir.BreakLine
 }
 
-func underlineFromVal(v string) ir.UnderlineStyle {
-	switch v {
+func underlineFromVal(value string) ir.UnderlineStyle {
+	switch value {
 	case "", "single":
 		return ir.UnderlineSingle
+	case "wavy":
+		return ir.UnderlineWavy
+	case "none":
+		return ir.UnderlineNone
 	case "double":
 		return ir.UnderlineDouble
-	case "wavy", "wave":
+	case "wave":
 		return ir.UnderlineWavy
 	case "dash":
 		return ir.UnderlineDash
-	case "none":
-		return ir.UnderlineNone
+	case "words":
+		return ir.UnderlineWords
+	case "thick":
+		return ir.UnderlineThick
+	case "dotted":
+		return ir.UnderlineDotted
+	case "dottedHeavy":
+		return ir.UnderlineDottedHeavy
+	case "dashedHeavy":
+		return ir.UnderlineDashedHeavy
+	case "dashLong":
+		return ir.UnderlineDashLong
+	case "dashLongHeavy":
+		return ir.UnderlineDashLongHeavy
+	case "dotDash":
+		return ir.UnderlineDotDash
+	case "dashDotHeavy":
+		return ir.UnderlineDashDotHeavy
+	case "dotDotDash":
+		return ir.UnderlineDotDotDash
+	case "dashDotDotHeavy":
+		return ir.UnderlineDashDotDotHeavy
+	case "wavyHeavy":
+		return ir.UnderlineWavyHeavy
+	case "wavyDouble":
+		return ir.UnderlineWavyDouble
 	}
 	return ir.UnderlineSingle
 }

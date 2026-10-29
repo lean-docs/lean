@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
+	"math"
 	"slices"
 	"strings"
 
@@ -51,7 +52,7 @@ func SaveDOCX(document *ir.Document) ([]byte, FidelityReport, error) {
 }
 
 func inspectDOCX(input []byte) (FidelityReport, error) {
-	report := FidelityReport{Format: "docx", Preserved: []string{"text", "run-formatting", "paragraph-formatting", "tables"}}
+	report := FidelityReport{Format: "docx", Preserved: []string{"text", "run-formatting", "explicit-run-toggles", "explicit-run-values", "underline-variants", "paragraph-formatting", "tables"}}
 	reader, err := zip.NewReader(bytes.NewReader(input), int64(len(input)))
 	if err != nil {
 		return report, err
@@ -59,7 +60,7 @@ func inspectDOCX(input []byte) (FidelityReport, error) {
 	var documentXML string
 	for _, file := range reader.File {
 		switch {
-		case file.Name == "word/document.xml":
+		case file.Name == "word/document.xml" || file.Name == "word/styles.xml":
 			stream, openErr := file.Open()
 			if openErr != nil {
 				return report, openErr
@@ -69,7 +70,10 @@ func inspectDOCX(input []byte) (FidelityReport, error) {
 			if readErr != nil {
 				return report, readErr
 			}
-			documentXML = string(content)
+			inspectUnderlineProperties(content, &report)
+			if file.Name == "word/document.xml" {
+				documentXML = string(content)
+			}
 		case strings.HasPrefix(file.Name, "word/header"):
 			report.addUnsupported("headers")
 		case strings.HasPrefix(file.Name, "word/footer"):
@@ -181,10 +185,14 @@ func hasNonDefaultColumns(documentXML string) bool {
 }
 
 func inspectDocument(document *ir.Document) FidelityReport {
-	report := FidelityReport{Format: "docx", Editable: document != nil, Preserved: []string{"text", "run-formatting", "paragraph-formatting", "tables"}}
+	report := FidelityReport{Format: "docx", Editable: document != nil, Preserved: []string{"text", "run-formatting", "explicit-run-toggles", "explicit-run-values", "underline-variants", "paragraph-formatting", "tables"}}
 	if document == nil {
 		report.addUnsupported("document")
 		return report
+	}
+	inspectRunValues(document.Styles.Defaults, &report)
+	for _, style := range document.Styles.Named {
+		inspectRunValues(style.RunAttrs, &report)
 	}
 	for _, section := range document.Sections {
 		if len(section.Columns) > 0 {
@@ -217,6 +225,7 @@ func walkDocumentBlocks(blocks []ir.Block, report *FidelityReport) {
 				report.addUnsupported("footnotes")
 			}
 			for _, run := range value.Runs {
+				inspectRunValues(run.Attrs, report)
 				if run.Attrs.Highlight != (ir.Color{}) && !supportedHighlight(run.Attrs.Highlight) {
 					report.addUnsupported("highlighting")
 				}
@@ -256,5 +265,42 @@ func supportedHighlight(color ir.Color) bool {
 func (report *FidelityReport) addUnsupported(feature string) {
 	if !slices.Contains(report.Unsupported, feature) {
 		report.Unsupported = append(report.Unsupported, feature)
+	}
+}
+
+func inspectRunValues(attrs ir.RunAttrs, report *FidelityReport) {
+	if attrs.Underline < ir.UnderlineNone || attrs.Underline > ir.UnderlineWavyDouble {
+		report.addUnsupported("underline-styles")
+	}
+	if math.IsNaN(attrs.Tracking) || math.IsInf(attrs.Tracking, 0) {
+		report.addUnsupported("character-spacing")
+	}
+}
+
+func inspectUnderlineProperties(content []byte, report *FidelityReport) {
+	decoder := xml.NewDecoder(bytes.NewReader(content))
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return
+		}
+		element, ok := token.(xml.StartElement)
+		if !ok || element.Name.Local != "u" {
+			continue
+		}
+		for _, attribute := range element.Attr {
+			if attribute.Name.Space == "xmlns" || attribute.Name.Local == "xmlns" {
+				continue
+			}
+			if attribute.Name.Local != "val" {
+				report.addUnsupported("underline-properties")
+				continue
+			}
+			switch attribute.Value {
+			case "", "none", "single", "double", "wave", "wavy", "dash", "words", "thick", "dotted", "dottedHeavy", "dashedHeavy", "dashLong", "dashLongHeavy", "dotDash", "dashDotHeavy", "dotDotDash", "dashDotDotHeavy", "wavyHeavy", "wavyDouble":
+			default:
+				report.addUnsupported("underline-styles")
+			}
+		}
 	}
 }

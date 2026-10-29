@@ -56,7 +56,7 @@ before it can replace native source editing.
 ## Quick Start
 
 ```bash
-go get github.com/lean-docs/lean@v0.1.0-alpha.1
+go get github.com/lean-docs/lean@v0.1.0-alpha.2
 ```
 
 ## Building from Source

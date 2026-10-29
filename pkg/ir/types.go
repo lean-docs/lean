@@ -53,6 +53,19 @@ const (
 	UnderlineDouble
 	UnderlineWavy
 	UnderlineDash
+	UnderlineWords
+	UnderlineThick
+	UnderlineDotted
+	UnderlineDottedHeavy
+	UnderlineDashedHeavy
+	UnderlineDashLong
+	UnderlineDashLongHeavy
+	UnderlineDotDash
+	UnderlineDashDotHeavy
+	UnderlineDotDotDash
+	UnderlineDashDotDotHeavy
+	UnderlineWavyHeavy
+	UnderlineWavyDouble
 )
 
 // BaselineShift represents superscript/subscript.
@@ -294,6 +307,8 @@ type RunAttrs struct {
 	Baseline  BaselineShift  `json:"baseline,omitempty"`
 	Tracking  float64        `json:"tracking,omitempty"`
 	Language  string         `json:"language,omitempty"`
+
+	explicitZero uint8
 }
 
 // Color represents an RGB color.
@@ -322,7 +337,7 @@ type Spacing struct {
 	Before   float64  `json:"before"`
 	After    float64  `json:"after"`
 	Line     float64  `json:"line"`
-	LineRule LineRule  `json:"line_rule"`
+	LineRule LineRule `json:"line_rule"`
 }
 
 // Indent represents paragraph indentation.
@@ -373,12 +388,12 @@ func (t *Table) BlockID() string      { return t.ID }
 
 // TableBorders holds table-level borders.
 type TableBorders struct {
-	Top      Border `json:"top"`
-	Bottom   Border `json:"bottom"`
-	Left     Border `json:"left"`
-	Right    Border `json:"right"`
-	InsideH  Border `json:"inside_h"`
-	InsideV  Border `json:"inside_v"`
+	Top     Border `json:"top"`
+	Bottom  Border `json:"bottom"`
+	Left    Border `json:"left"`
+	Right   Border `json:"right"`
+	InsideH Border `json:"inside_h"`
+	InsideV Border `json:"inside_v"`
 }
 
 // TableRow represents a row in a table.

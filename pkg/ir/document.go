@@ -40,39 +40,32 @@ func (ss *StyleSheet) ResolveStyle(name string) (Style, bool) {
 	if !ok {
 		return Style{}, false
 	}
-
-	if style.BasedOn == "" {
-		return style, true
+	chain := []Style{style}
+	seen := map[string]bool{name: true}
+	for style.BasedOn != "" {
+		if seen[style.BasedOn] {
+			return Style{}, false
+		}
+		seen[style.BasedOn] = true
+		parent, exists := ss.Named[style.BasedOn]
+		if !exists {
+			break
+		}
+		chain = append(chain, parent)
+		style = parent
 	}
-
-	parent, ok := ss.ResolveStyle(style.BasedOn)
-	if !ok {
-		return style, true
+	merged := chain[len(chain)-1]
+	merged.RunAttrs = ss.Defaults
+	for index := len(chain) - 1; index >= 0; index-- {
+		current := chain[index]
+		merged.RunAttrs = merged.RunAttrs.Overlay(current.RunAttrs)
+		if current.ParaAttrs.Align != AlignLeft {
+			merged.ParaAttrs.Align = current.ParaAttrs.Align
+		}
 	}
-
-	// Merge parent into style (style overrides parent)
-	merged := parent
-	merged.ID = style.ID
-	merged.Name = style.Name
-	merged.BasedOn = style.BasedOn
-	merged.IsChar = style.IsChar
-
-	// Only override non-zero values from child
-	if style.RunAttrs.Bold {
-		merged.RunAttrs.Bold = true
-	}
-	if style.RunAttrs.Italic {
-		merged.RunAttrs.Italic = true
-	}
-	if style.RunAttrs.FontSize > 0 {
-		merged.RunAttrs.FontSize = style.RunAttrs.FontSize
-	}
-	if style.RunAttrs.FontName != "" {
-		merged.RunAttrs.FontName = style.RunAttrs.FontName
-	}
-	if style.ParaAttrs.Align != AlignLeft {
-		merged.ParaAttrs.Align = style.ParaAttrs.Align
-	}
-
+	merged.ID = chain[0].ID
+	merged.Name = chain[0].Name
+	merged.BasedOn = chain[0].BasedOn
+	merged.IsChar = chain[0].IsChar
 	return merged, true
 }

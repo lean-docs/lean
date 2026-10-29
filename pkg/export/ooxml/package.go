@@ -240,23 +240,43 @@ func writeRunProperties(output *strings.Builder, attrs ir.RunAttrs) {
 		return
 	}
 	output.WriteString("<w:rPr>")
-	if attrs.Bold {
-		output.WriteString("<w:b/>")
+	if attrs.BoldSpecified() {
+		if attrs.Bold {
+			output.WriteString("<w:b/>")
+		} else {
+			output.WriteString(`<w:b w:val="0"/>`)
+		}
 	}
-	if attrs.Italic {
-		output.WriteString("<w:i/>")
+	if attrs.ItalicSpecified() {
+		if attrs.Italic {
+			output.WriteString("<w:i/>")
+		} else {
+			output.WriteString(`<w:i w:val="0"/>`)
+		}
 	}
-	if attrs.Underline != ir.UnderlineNone {
+	if attrs.UnderlineSpecified() {
 		output.WriteString(`<w:u w:val="` + underline(attrs.Underline) + `"/>`)
 	}
-	if attrs.Strike {
-		output.WriteString("<w:strike/>")
+	if attrs.StrikeSpecified() {
+		if attrs.Strike {
+			output.WriteString("<w:strike/>")
+		} else {
+			output.WriteString(`<w:strike w:val="0"/>`)
+		}
 	}
-	if attrs.SmallCaps {
-		output.WriteString("<w:smallCaps/>")
+	if attrs.SmallCapsSpecified() {
+		if attrs.SmallCaps {
+			output.WriteString("<w:smallCaps/>")
+		} else {
+			output.WriteString(`<w:smallCaps w:val="0"/>`)
+		}
 	}
-	if attrs.AllCaps {
-		output.WriteString("<w:caps/>")
+	if attrs.AllCapsSpecified() {
+		if attrs.AllCaps {
+			output.WriteString("<w:caps/>")
+		} else {
+			output.WriteString(`<w:caps w:val="0"/>`)
+		}
 	}
 	if attrs.FontSize > 0 {
 		output.WriteString(`<w:sz w:val="` + strconv.FormatFloat(attrs.FontSize*2, 'f', -1, 64) + `"/>`)
@@ -267,13 +287,13 @@ func writeRunProperties(output *strings.Builder, attrs ir.RunAttrs) {
 	if attrs.Color != (ir.Color{}) {
 		output.WriteString(`<w:color w:val="` + color(attrs.Color) + `"/>`)
 	}
-	if attrs.Baseline != ir.BaselineNone {
+	if attrs.BaselineSpecified() {
 		output.WriteString(`<w:vertAlign w:val="` + baseline(attrs.Baseline) + `"/>`)
 	}
 	if attrs.Highlight != (ir.Color{}) {
 		output.WriteString(`<w:highlight w:val="` + highlight(attrs.Highlight) + `"/>`)
 	}
-	if attrs.Tracking != 0 {
+	if attrs.TrackingSpecified() {
 		output.WriteString(`<w:spacing w:val="` + strconv.FormatInt(int64(attrs.Tracking*20), 10) + `"/>`)
 	}
 	if attrs.Language != "" {
@@ -606,18 +626,51 @@ func tabLeader(value ir.TabLeader) string {
 	return "none"
 }
 func underline(value ir.UnderlineStyle) string {
-	if value == ir.UnderlineDouble {
+	switch value {
+	case ir.UnderlineNone:
+		return "none"
+	case ir.UnderlineSingle:
+		return "single"
+	case ir.UnderlineDouble:
 		return "double"
-	}
-	if value == ir.UnderlineWavy {
+	case ir.UnderlineWavy:
 		return "wave"
-	}
-	if value == ir.UnderlineDash {
+	case ir.UnderlineDash:
 		return "dash"
+	case ir.UnderlineWords:
+		return "words"
+	case ir.UnderlineThick:
+		return "thick"
+	case ir.UnderlineDotted:
+		return "dotted"
+	case ir.UnderlineDottedHeavy:
+		return "dottedHeavy"
+	case ir.UnderlineDashedHeavy:
+		return "dashedHeavy"
+	case ir.UnderlineDashLong:
+		return "dashLong"
+	case ir.UnderlineDashLongHeavy:
+		return "dashLongHeavy"
+	case ir.UnderlineDotDash:
+		return "dotDash"
+	case ir.UnderlineDashDotHeavy:
+		return "dashDotHeavy"
+	case ir.UnderlineDotDotDash:
+		return "dotDotDash"
+	case ir.UnderlineDashDotDotHeavy:
+		return "dashDotDotHeavy"
+	case ir.UnderlineWavyHeavy:
+		return "wavyHeavy"
+	case ir.UnderlineWavyDouble:
+		return "wavyDouble"
 	}
 	return "single"
 }
+
 func baseline(value ir.BaselineShift) string {
+	if value == ir.BaselineNone {
+		return "baseline"
+	}
 	if value == ir.BaselineSubscript {
 		return "subscript"
 	}

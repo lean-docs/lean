@@ -17,6 +17,7 @@ import (
 var ErrInvalidCommand = errors.New("lean: invalid document command")
 
 type DocumentCommand struct {
+	SectionBreak    string              `json:"section_break,omitempty"`
 	Footnote        *ir.Footnote        `json:"footnote,omitempty"`
 	StyleDefinition *ir.Style           `json:"style_definition,omitempty"`
 	Bookmark        *ir.Bookmark        `json:"bookmark,omitempty"`
@@ -57,7 +58,7 @@ func DOCXCommands() []DocumentCommandInfo {
 		{"paragraph.format", "paragraph-formatting"}, {"paragraph.style", "paragraph-formatting"}, {"paragraph.insert", "text"}, {"paragraph.delete", "text"}, {"paragraph.split", "text"}, {"paragraph.join", "text"},
 		{"list.set", "lists"}, {"list.remove", "lists"},
 		{"table.insert", "tables"}, {"table.delete", "tables"}, {"table.row.insert", "tables"}, {"table.row.delete", "tables"}, {"table.column.insert", "tables"}, {"table.column.delete", "tables"},
-		{"page.layout", "page-layout"}, {"page.columns", "page-columns"}, {"section.insert", "sections"}, {"section.delete", "sections"},
+		{"page.layout", "page-layout"}, {"page.columns", "page-columns"}, {"section.insert", "sections"}, {"section.delete", "sections"}, {"section.break", "sections"},
 		{"header.set", "headers"}, {"header.remove", "headers"}, {"footer.set", "footers"}, {"footer.remove", "footers"},
 	}
 }
@@ -179,6 +180,9 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 		}
 		delete(document.Styles.Named, command.Style)
 		return nil
+	case "section.break":
+		section.Break = command.SectionBreak
+		return nil
 	case "page.layout":
 		if command.Page == nil || !validEditingPage(*command.Page) {
 			return errors.New("page dimensions and margins must leave room for content")
@@ -189,7 +193,7 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 		if len(command.ColumnsLayout) > 100 {
 			return errors.New("too many page columns")
 		}
-		available := section.Properties.Width - section.Properties.MarginLeft - section.Properties.MarginRight
+		available := section.Properties.Width - section.Properties.MarginLeft - section.Properties.MarginRight - section.Properties.Gutter
 		total := 0.0
 		for index, column := range command.ColumnsLayout {
 			if !finite(column.Width) || !finite(column.Spacing) || column.Width <= 0 || column.Spacing < 0 {
@@ -287,7 +291,7 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 				return errors.New("invalid table size")
 			}
 			table := &ir.Table{ID: rand.Text(), ColumnWidths: make([]float64, command.Columns)}
-			width := (section.Properties.Width - section.Properties.MarginLeft - section.Properties.MarginRight) / float64(command.Columns)
+			width := (section.Properties.Width - section.Properties.MarginLeft - section.Properties.MarginRight - section.Properties.Gutter) / float64(command.Columns)
 			if width <= 0 {
 				width = 72
 			}
@@ -675,10 +679,10 @@ func newEditingCell() ir.TableCell {
 }
 func finite(value float64) bool { return !math.IsNaN(value) && !math.IsInf(value, 0) }
 func validEditingPage(page ir.PageProperties) bool {
-	for _, value := range []float64{page.Width, page.Height, page.MarginTop, page.MarginBottom, page.MarginLeft, page.MarginRight} {
+	for _, value := range []float64{page.Width, page.Height, page.MarginTop, page.MarginBottom, page.MarginLeft, page.MarginRight, page.Gutter} {
 		if !finite(value) || value < 0 {
 			return false
 		}
 	}
-	return page.Width > page.MarginLeft+page.MarginRight && page.Height > page.MarginTop+page.MarginBottom && (page.Orientation == ir.Portrait || page.Orientation == ir.Landscape)
+	return page.Width > page.MarginLeft+page.MarginRight+page.Gutter && page.Height > page.MarginTop+page.MarginBottom && (page.Orientation == ir.Portrait || page.Orientation == ir.Landscape)
 }

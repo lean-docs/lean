@@ -205,6 +205,7 @@ type Style struct {
 
 // Section represents a document section.
 type Section struct {
+	Break      string          `json:"break,omitempty"`
 	Properties PageProperties  `json:"properties"`
 	Columns    []Column        `json:"columns"`
 	Header     *HeaderFooter   `json:"header,omitempty"`
@@ -222,13 +223,16 @@ type Column struct {
 
 // PageProperties defines page dimensions and margins.
 type PageProperties struct {
-	Width        float64     `json:"width"`
-	Height       float64     `json:"height"`
-	MarginTop    float64     `json:"margin_top"`
-	MarginBottom float64     `json:"margin_bottom"`
-	MarginLeft   float64     `json:"margin_left"`
-	MarginRight  float64     `json:"margin_right"`
-	Orientation  Orientation `json:"orientation"`
+	HeaderDistance *float64    `json:"header_distance,omitempty"`
+	FooterDistance *float64    `json:"footer_distance,omitempty"`
+	Gutter         float64     `json:"gutter,omitempty"`
+	Width          float64     `json:"width"`
+	Height         float64     `json:"height"`
+	MarginTop      float64     `json:"margin_top"`
+	MarginBottom   float64     `json:"margin_bottom"`
+	MarginLeft     float64     `json:"margin_left"`
+	MarginRight    float64     `json:"margin_right"`
+	Orientation    Orientation `json:"orientation"`
 }
 
 // HeaderFooter represents header or footer content.

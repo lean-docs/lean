@@ -13,6 +13,7 @@
 
 ### Fixed
 - Header, footer and footnote resources retain their own image and hyperlink relationships
+- Section break types, header/footer distances and gutter margins retain pagination settings
 - Footnote references retain text positions and remain unique across paragraphs
 - Arbitrary numbering identifiers become valid numeric DOCX identifiers
 - Editable input reports are checked against canonical save requirements

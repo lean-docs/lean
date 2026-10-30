@@ -436,18 +436,8 @@ func writeImage(output *strings.Builder, image *ir.Image, index int) {
 
 func writeSectionProperties(output *strings.Builder, section ir.Section, references string) {
 	output.WriteString("<w:sectPr>" + references)
-	for _, value := range append(append([]*ir.HeaderFooter{section.Header, section.Footer}, section.Headers...), section.Footers...) {
-		if value != nil && value.Kind == ir.HeaderFooterFirst {
-			output.WriteString("<w:titlePg/>")
-			break
-		}
-	}
-	if len(section.Columns) > 0 {
-		output.WriteString(`<w:cols w:num="` + strconv.Itoa(len(section.Columns)) + `" w:equalWidth="0">`)
-		for _, column := range section.Columns {
-			output.WriteString(`<w:col w:w="` + twips(column.Width) + `" w:space="` + twips(column.Spacing) + `"/>`)
-		}
-		output.WriteString(`</w:cols>`)
+	if section.Break != "" {
+		output.WriteString(`<w:type w:val="` + escape(section.Break) + `"/>`)
 	}
 	properties := section.Properties
 	if properties.Width > 0 || properties.Height > 0 {
@@ -457,7 +447,27 @@ func writeSectionProperties(output *strings.Builder, section ir.Section, referen
 		}
 		output.WriteString(`<w:pgSz w:w="` + twips(properties.Width) + `" w:h="` + twips(properties.Height) + `"` + orientation + `/>`)
 	}
-	output.WriteString(`<w:pgMar w:top="` + twips(properties.MarginTop) + `" w:right="` + twips(properties.MarginRight) + `" w:bottom="` + twips(properties.MarginBottom) + `" w:left="` + twips(properties.MarginLeft) + `"/>`)
+	distances := ` w:gutter="` + twips(properties.Gutter) + `"`
+	if properties.HeaderDistance != nil {
+		distances += ` w:header="` + twips(*properties.HeaderDistance) + `"`
+	}
+	if properties.FooterDistance != nil {
+		distances += ` w:footer="` + twips(*properties.FooterDistance) + `"`
+	}
+	output.WriteString(`<w:pgMar w:top="` + twips(properties.MarginTop) + `" w:right="` + twips(properties.MarginRight) + `" w:bottom="` + twips(properties.MarginBottom) + `" w:left="` + twips(properties.MarginLeft) + `"` + distances + `/>`)
+	if len(section.Columns) > 0 {
+		output.WriteString(`<w:cols w:num="` + strconv.Itoa(len(section.Columns)) + `" w:equalWidth="0">`)
+		for _, column := range section.Columns {
+			output.WriteString(`<w:col w:w="` + twips(column.Width) + `" w:space="` + twips(column.Spacing) + `"/>`)
+		}
+		output.WriteString(`</w:cols>`)
+	}
+	for _, value := range append(append([]*ir.HeaderFooter{section.Header, section.Footer}, section.Headers...), section.Footers...) {
+		if value != nil && value.Kind == ir.HeaderFooterFirst {
+			output.WriteString("<w:titlePg/>")
+			break
+		}
+	}
 	output.WriteString("</w:sectPr>")
 }
 

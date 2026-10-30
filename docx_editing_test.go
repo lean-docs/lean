@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"os"
 	"testing"
 
 	lean "github.com/lean-docs/lean"
@@ -158,4 +159,35 @@ func TestEditingFootnotesRetainTheirOwnReferencesAndHyperlinks(t *testing.T) {
 	require.Equal(t, "First note", one.Blocks[0].(*ir.Paragraph).Runs[0].Text)
 	require.Equal(t, "Second note", two.Blocks[0].(*ir.Paragraph).Runs[0].Text)
 	require.Equal(t, "https://example.org/reference", one.Blocks[0].(*ir.Paragraph).Runs[0].Hyperlink.URL)
+}
+
+func TestRealWordSectionBreaksAndPageOffsetsSurviveDOCX(t *testing.T) {
+	input, err := os.ReadFile("testdata/fixtures/ooxml/python-docx/sct-section-props.docx")
+	require.NoError(t, err)
+	document, report, err := lean.OpenDOCX(input)
+	require.NoError(t, err)
+	require.True(t, report.Editable)
+	require.Len(t, document.Sections, 5)
+	require.Equal(t, "continuous", document.Sections[0].Break)
+	require.Empty(t, document.Sections[1].Break)
+	require.Equal(t, ir.Portrait, document.Sections[1].Properties.Orientation)
+	require.Equal(t, "oddPage", document.Sections[2].Break)
+	require.Equal(t, "evenPage", document.Sections[3].Break)
+	require.Equal(t, "nextColumn", document.Sections[4].Break)
+	require.Equal(t, 36.0, *document.Sections[0].Properties.HeaderDistance)
+	require.Equal(t, 54.0, *document.Sections[0].Properties.FooterDistance)
+	require.Equal(t, 18.0, document.Sections[0].Properties.Gutter)
+	encoded, err := json.Marshal(document)
+	require.NoError(t, err)
+	var copied ir.Document
+	require.NoError(t, json.Unmarshal(encoded, &copied))
+	output, _, err := lean.SaveDOCX(&copied)
+	require.NoError(t, err)
+	reopened, report, err := lean.OpenDOCX(output)
+	require.NoError(t, err)
+	require.True(t, report.Editable)
+	for index, section := range document.Sections {
+		require.Equal(t, section.Break, reopened.Sections[index].Break)
+		require.Equal(t, section.Properties, reopened.Sections[index].Properties)
+	}
 }

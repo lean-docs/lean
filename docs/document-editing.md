@@ -42,7 +42,7 @@ The output must not exist. Inspect the input first to obtain its paragraph and t
 | Styles | `style.set`, `style.remove` |
 | Numbering | `list.set`, `list.remove` |
 | Tables | `table.insert`, `table.delete`, `table.row.insert`, `table.row.delete`, `table.column.insert`, `table.column.delete` |
-| Layout | `page.layout`, `page.columns`, `section.insert`, `section.delete` |
+| Layout | `page.layout`, `page.columns`, `section.insert`, `section.delete`, `section.break` |
 | Auxiliary parts | `header.set`, `header.remove`, `footer.set`, `footer.remove` |
 | References | `bookmark.set`, `bookmark.remove`, `footnote.set`, `footnote.remove` |
 
@@ -50,7 +50,7 @@ A block target is selected within its section and part. The default section is z
 
 Text ranges use UTF-16 offsets. A supplementary character counts as two units and an inline break counts as one. Ranges cannot split a supplementary character. Paragraph insertion uses a block index; table row and column commands use a row or column index.
 
-All layout measurements use points. Page margins must leave a content area. Column widths and gaps must fit that area. Structural table commands refuse merged-cell changes.
+All layout measurements use points. Page margins must leave a content area. Column widths and gaps must fit that area. Sections retain continuous, next-page, odd-page, even-page and next-column breaks, plus header/footer distances and gutter margins. Structural table commands refuse merged-cell changes.
 
 Formatting setters distinguish inherited values from explicit off, zero or black values. Named paragraph styles resolve their parent chain; cyclic definitions and removing a style still in use are rejected.
 

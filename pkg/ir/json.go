@@ -93,6 +93,7 @@ func unmarshalBlock(env blockEnvelope) (Block, error) {
 
 // sectionJSON is the JSON representation of a Section with typed blocks.
 type sectionJSON struct {
+	Break      string            `json:"break,omitempty"`
 	Headers    []*HeaderFooter   `json:"headers,omitempty"`
 	Footers    []*HeaderFooter   `json:"footers,omitempty"`
 	Properties PageProperties    `json:"properties"`
@@ -114,7 +115,7 @@ func (s Section) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 
-	sj := sectionJSON{Headers: s.Headers, Footers: s.Footers,
+	sj := sectionJSON{Break: s.Break, Headers: s.Headers, Footers: s.Footers,
 		Properties: s.Properties,
 		Columns:    s.Columns,
 		Blocks:     blocksData,
@@ -149,6 +150,7 @@ func (s *Section) UnmarshalJSON(data []byte) error {
 	s.Headers = sj.Headers
 	s.Footers = sj.Footers
 	s.Properties = sj.Properties
+	s.Break = sj.Break
 	s.Columns = sj.Columns
 
 	if sj.Blocks != nil {

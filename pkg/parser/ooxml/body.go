@@ -337,6 +337,7 @@ type xmlMarEdge struct {
 }
 
 type xmlSectionProps struct {
+	Break   *xmlValAttr     `xml:"type"`
 	Columns *xmlColumns     `xml:"cols"`
 	Size    *xmlPageSize    `xml:"pgSz"`
 	Margins *xmlPageMargins `xml:"pgMar"`
@@ -366,6 +367,9 @@ type xmlPageSize struct {
 }
 
 type xmlPageMargins struct {
+	Header string `xml:"header,attr"`
+	Footer string `xml:"footer,attr"`
+	Gutter string `xml:"gutter,attr"`
 	Top    string `xml:"top,attr"`
 	Right  string `xml:"right,attr"`
 	Bottom string `xml:"bottom,attr"`
@@ -550,7 +554,11 @@ func applySectionProps(section *ir.Section, properties *xmlSectionProps, context
 	if section == nil || properties == nil {
 		return
 	}
+	if properties.Break != nil {
+		section.Break = properties.Break.Val
+	}
 	if properties.Size != nil {
+		section.Properties.Orientation = ir.Portrait
 		section.Properties.Width = twipAttr(properties.Size.Width)
 		section.Properties.Height = twipAttr(properties.Size.Height)
 		if properties.Size.Orientation == "landscape" {
@@ -558,6 +566,15 @@ func applySectionProps(section *ir.Section, properties *xmlSectionProps, context
 		}
 	}
 	if properties.Margins != nil {
+		if properties.Margins.Header != "" {
+			value := twipAttr(properties.Margins.Header)
+			section.Properties.HeaderDistance = &value
+		}
+		if properties.Margins.Footer != "" {
+			value := twipAttr(properties.Margins.Footer)
+			section.Properties.FooterDistance = &value
+		}
+		section.Properties.Gutter = twipAttr(properties.Margins.Gutter)
 		section.Properties.MarginTop = twipAttr(properties.Margins.Top)
 		section.Properties.MarginRight = twipAttr(properties.Margins.Right)
 		section.Properties.MarginBottom = twipAttr(properties.Margins.Bottom)
@@ -571,7 +588,7 @@ func applySectionProps(section *ir.Section, properties *xmlSectionProps, context
 		if len(section.Columns) == 0 && properties.Columns.Count > 1 {
 			gap := twipAttr(properties.Columns.Space)
 			count := properties.Columns.Count
-			width := (section.Properties.Width - section.Properties.MarginLeft - section.Properties.MarginRight - float64(count-1)*gap) / float64(count)
+			width := (section.Properties.Width - section.Properties.MarginLeft - section.Properties.MarginRight - section.Properties.Gutter - float64(count-1)*gap) / float64(count)
 			for i := 0; i < count; i++ {
 				section.Columns = append(section.Columns, ir.Column{Width: width, Spacing: gap})
 			}

@@ -2,6 +2,7 @@ package lean
 
 import (
 	"math"
+	"slices"
 	"unicode/utf16"
 
 	"github.com/lean-docs/lean/pkg/ir"
@@ -104,6 +105,14 @@ func inspectDocumentStructure(document *ir.Document, report *FidelityReport) {
 	}
 	var body []ir.Block
 	for _, section := range document.Sections {
+		if !slices.Contains([]string{"", "nextPage", "continuous", "oddPage", "evenPage", "nextColumn"}, section.Break) {
+			report.addUnsupported("section-breaks")
+		}
+		for _, distance := range []*float64{section.Properties.HeaderDistance, section.Properties.FooterDistance, &section.Properties.Gutter} {
+			if distance != nil && (!finite(*distance) || *distance < 0) {
+				report.addUnsupported("invalid-page-layout")
+			}
+		}
 		body = append(body, section.Blocks...)
 		for _, value := range []float64{section.Properties.Width, section.Properties.Height, section.Properties.MarginTop, section.Properties.MarginBottom, section.Properties.MarginLeft, section.Properties.MarginRight} {
 			if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {

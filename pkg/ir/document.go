@@ -56,12 +56,11 @@ func (ss *StyleSheet) ResolveStyle(name string) (Style, bool) {
 	}
 	merged := chain[len(chain)-1]
 	merged.RunAttrs = ss.Defaults
+	merged.ParaAttrs = ParaAttrs{}
 	for index := len(chain) - 1; index >= 0; index-- {
 		current := chain[index]
 		merged.RunAttrs = merged.RunAttrs.Overlay(current.RunAttrs)
-		if current.ParaAttrs.Align != AlignLeft {
-			merged.ParaAttrs.Align = current.ParaAttrs.Align
-		}
+		merged.ParaAttrs = merged.ParaAttrs.Overlay(current.ParaAttrs)
 	}
 	merged.ID = chain[0].ID
 	merged.Name = chain[0].Name

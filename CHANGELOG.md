@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3] - 2026-10-30
+
+### Added
+- Atomic document command batches for text, styles, paragraph structure, numbering, tables, page layout, sections, headers, footers and bookmarks
+- Command inspection and document editing through the command line
+- Explicit paragraph resets and black text overrides through JSON and DOCX
+- Independent header and footer variants, section page columns and numbering restarts
+- Anchored bookmark ranges that move with text edits and paragraph splits and joins
+
+### Fixed
+- Header, footer and footnote resources retain their own image and hyperlink relationships
+- Footnote references retain text positions and remain unique across paragraphs
+- Arbitrary numbering identifiers become valid numeric DOCX identifiers
+- Editable input reports are checked against canonical save requirements
+
 ## [0.1.0-alpha.2] - 2026-10-29
 
 ### Added

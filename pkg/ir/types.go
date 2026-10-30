@@ -205,11 +205,13 @@ type Style struct {
 
 // Section represents a document section.
 type Section struct {
-	Properties PageProperties `json:"properties"`
-	Columns    []Column       `json:"columns"`
-	Header     *HeaderFooter  `json:"header,omitempty"`
-	Footer     *HeaderFooter  `json:"footer,omitempty"`
-	Blocks     []Block        `json:"blocks"`
+	Properties PageProperties  `json:"properties"`
+	Columns    []Column        `json:"columns"`
+	Header     *HeaderFooter   `json:"header,omitempty"`
+	Headers    []*HeaderFooter `json:"headers,omitempty"`
+	Footer     *HeaderFooter   `json:"footer,omitempty"`
+	Footers    []*HeaderFooter `json:"footers,omitempty"`
+	Blocks     []Block         `json:"blocks"`
 }
 
 // Column represents a column definition.
@@ -256,17 +258,18 @@ func (p *Paragraph) BlockID() string      { return p.ID }
 
 // ParaAttrs holds paragraph formatting attributes.
 type ParaAttrs struct {
-	Align           Alignment   `json:"align"`
-	Spacing         Spacing     `json:"spacing"`
-	Indent          Indent      `json:"indent"`
-	TabStops        []TabStop   `json:"tab_stops,omitempty"`
-	KeepTogether    bool        `json:"keep_together,omitempty"`
-	KeepWithNext    bool        `json:"keep_with_next,omitempty"`
-	PageBreakBefore bool        `json:"page_break_before,omitempty"`
-	OutlineLevel    int         `json:"outline_level,omitempty"`
-	Borders         ParaBorders `json:"borders"`
-	Shading         Color       `json:"shading"`
-	BiDi            bool        `json:"bidi,omitempty"`
+	Align              Alignment   `json:"align"`
+	Spacing            Spacing     `json:"spacing"`
+	Indent             Indent      `json:"indent"`
+	TabStops           []TabStop   `json:"tab_stops,omitempty"`
+	KeepTogether       bool        `json:"keep_together,omitempty"`
+	KeepWithNext       bool        `json:"keep_with_next,omitempty"`
+	PageBreakBefore    bool        `json:"page_break_before,omitempty"`
+	OutlineLevel       int         `json:"outline_level,omitempty"`
+	Borders            ParaBorders `json:"borders"`
+	Shading            Color       `json:"shading"`
+	BiDi               bool        `json:"bidi,omitempty"`
+	explicitProperties uint8
 }
 
 // ParaBorders holds paragraph border definitions.
@@ -308,7 +311,7 @@ type RunAttrs struct {
 	Tracking  float64        `json:"tracking,omitempty"`
 	Language  string         `json:"language,omitempty"`
 
-	explicitZero uint8
+	explicitZero uint16
 }
 
 // Color represents an RGB color.
@@ -447,14 +450,22 @@ func (i *Image) BlockID() string      { return i.ID }
 
 // Footnote represents a footnote.
 type Footnote struct {
+	Offset *int    `json:"offset,omitempty"`
 	ID     string  `json:"id"`
 	Blocks []Block `json:"blocks"`
 }
 
 // Bookmark represents a document bookmark.
+type BookmarkPosition struct {
+	ParagraphID string `json:"paragraph_id"`
+	Offset      int    `json:"offset"`
+}
+
 type Bookmark struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	Start *BookmarkPosition `json:"start,omitempty"`
+	End   *BookmarkPosition `json:"end,omitempty"`
+	ID    string            `json:"id"`
+	Name  string            `json:"name"`
 }
 
 func (b *Bookmark) BlockType() BlockType { return BlockBookmark }

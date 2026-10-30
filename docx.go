@@ -24,6 +24,17 @@ type FidelityReport struct {
 	Unsupported []string `json:"unsupported"`
 }
 
+func NewDOCX(title string) *ir.Document {
+	document := ir.NewDocument()
+	document.Meta.Title = title
+	for _, id := range []string{"Normal", "Title", "Subtitle", "Heading1", "Heading2", "Heading3", "Heading4", "Heading5", "Heading6"} {
+		style, _ := ir.BuiltinStyle(id)
+		document.Styles.Named[id] = style
+	}
+	document.Sections[0].Blocks = []ir.Block{&ir.Paragraph{ID: "p1", Runs: []ir.Run{{Text: title}}}}
+	return document
+}
+
 func OpenDOCX(input []byte) (*ir.Document, FidelityReport, error) {
 	report, err := inspectDOCX(input)
 	if err != nil {
@@ -33,6 +44,12 @@ func OpenDOCX(input []byte) (*ir.Document, FidelityReport, error) {
 	if err != nil {
 		return nil, report, err
 	}
+	validation := inspectDocument(document)
+	for _, feature := range validation.Unsupported {
+		report.addUnsupported(feature)
+	}
+	report.Editable = len(report.Unsupported) == 0
+	slices.Sort(report.Unsupported)
 	return document, report, nil
 }
 
@@ -45,22 +62,27 @@ func SaveDOCX(document *ir.Document) ([]byte, FidelityReport, error) {
 	if err != nil {
 		return nil, report, err
 	}
-	if _, _, err := OpenDOCX(content); err != nil {
+	_, reopened, err := OpenDOCX(content)
+	if err != nil {
 		return nil, report, err
+	}
+	if !reopened.Editable {
+		return nil, reopened, ErrUnsupportedDocument
 	}
 	return content, report, nil
 }
 
 func inspectDOCX(input []byte) (FidelityReport, error) {
-	report := FidelityReport{Format: "docx", Preserved: []string{"text", "run-formatting", "explicit-run-toggles", "explicit-run-values", "underline-variants", "paragraph-formatting", "tables"}}
+	report := FidelityReport{Format: "docx", Preserved: []string{"text", "run-formatting", "explicit-run-toggles", "explicit-run-values", "underline-variants", "paragraph-formatting", "explicit-paragraph-values", "explicit-run-colour", "lists", "page-layout", "sections", "headers", "footers", "footnotes", "page-columns", "list-restarts", "bookmarks", "hyperlinks", "tables"}}
 	reader, err := zip.NewReader(bytes.NewReader(input), int64(len(input)))
 	if err != nil {
 		return report, err
 	}
 	var documentXML string
+	var auxiliaryXML strings.Builder
 	for _, file := range reader.File {
 		switch {
-		case file.Name == "word/document.xml" || file.Name == "word/styles.xml":
+		case file.Name == "word/document.xml" || file.Name == "word/styles.xml" || strings.HasPrefix(file.Name, "word/header") || strings.HasPrefix(file.Name, "word/footer") || file.Name == "word/footnotes.xml":
 			stream, openErr := file.Open()
 			if openErr != nil {
 				return report, openErr
@@ -71,15 +93,10 @@ func inspectDOCX(input []byte) (FidelityReport, error) {
 				return report, readErr
 			}
 			inspectUnderlineProperties(content, &report)
+			auxiliaryXML.Write(content)
 			if file.Name == "word/document.xml" {
 				documentXML = string(content)
 			}
-		case strings.HasPrefix(file.Name, "word/header"):
-			report.addUnsupported("headers")
-		case strings.HasPrefix(file.Name, "word/footer"):
-			report.addUnsupported("footers")
-		case file.Name == "word/footnotes.xml":
-			report.addUnsupported("footnotes")
 		case file.Name == "word/comments.xml":
 			report.addUnsupported("comments")
 		}
@@ -90,24 +107,21 @@ func inspectDOCX(input []byte) (FidelityReport, error) {
 		"<w:vMerge":  "row-spans",
 	}
 	for marker, feature := range markers {
-		if strings.Contains(documentXML, marker) {
+		if strings.Contains(auxiliaryXML.String(), marker) {
 			report.addUnsupported(feature)
 		}
 	}
-	if hasElementWithin(documentXML, "rPr", "shd") {
+	if hasElementWithin(auxiliaryXML.String(), "rPr", "shd") {
 		report.addUnsupported("run-shading")
 	}
-	if hasElementWithin(documentXML, "rPr", "rStyle") {
+	if hasElementWithin(auxiliaryXML.String(), "rPr", "rStyle") {
 		report.addUnsupported("character-style-references")
 	}
 	if hasElementWithin(documentXML, "body", "ins") || hasElementWithin(documentXML, "body", "del") {
 		report.addUnsupported("tracked-changes")
 	}
-	if hasNonDefaultTableStyle(documentXML) {
+	if hasNonDefaultTableStyle(auxiliaryXML.String()) {
 		report.addUnsupported("table-styles")
-	}
-	if hasNonDefaultColumns(documentXML) {
-		report.addUnsupported("page-columns")
 	}
 	report.Editable = len(report.Unsupported) == 0
 	slices.Sort(report.Unsupported)
@@ -156,53 +170,36 @@ func hasNonDefaultTableStyle(documentXML string) bool {
 	}
 }
 
-func hasNonDefaultColumns(documentXML string) bool {
-	decoder := xml.NewDecoder(strings.NewReader(documentXML))
-	insideColumns := false
-	for {
-		token, err := decoder.Token()
-		if err != nil {
-			return false
-		}
-		switch element := token.(type) {
-		case xml.StartElement:
-			if element.Name.Local == "cols" {
-				insideColumns = true
-				for _, attribute := range element.Attr {
-					if attribute.Name.Local == "num" && attribute.Value != "" && attribute.Value != "1" {
-						return true
-					}
-				}
-			} else if insideColumns && element.Name.Local == "col" {
-				return true
-			}
-		case xml.EndElement:
-			if element.Name.Local == "cols" {
-				insideColumns = false
-			}
-		}
-	}
-}
-
 func inspectDocument(document *ir.Document) FidelityReport {
-	report := FidelityReport{Format: "docx", Editable: document != nil, Preserved: []string{"text", "run-formatting", "explicit-run-toggles", "explicit-run-values", "underline-variants", "paragraph-formatting", "tables"}}
+	report := FidelityReport{Format: "docx", Editable: document != nil, Preserved: []string{"text", "run-formatting", "explicit-run-toggles", "explicit-run-values", "underline-variants", "paragraph-formatting", "explicit-paragraph-values", "explicit-run-colour", "lists", "page-layout", "sections", "headers", "footers", "footnotes", "page-columns", "list-restarts", "bookmarks", "hyperlinks", "tables"}}
 	if document == nil {
 		report.addUnsupported("document")
 		return report
 	}
+	inspectDocumentStructure(document, &report)
 	inspectRunValues(document.Styles.Defaults, &report)
 	for _, style := range document.Styles.Named {
 		inspectRunValues(style.RunAttrs, &report)
 	}
 	for _, section := range document.Sections {
-		if len(section.Columns) > 0 {
-			report.addUnsupported("page-columns")
+		for _, column := range section.Columns {
+			if column.Width <= 0 || column.Spacing < 0 || math.IsNaN(column.Width) || math.IsInf(column.Width, 0) {
+				report.addUnsupported("page-columns")
+			}
 		}
-		if section.Header != nil {
-			report.addUnsupported("headers")
-		}
-		if section.Footer != nil {
-			report.addUnsupported("footers")
+		for _, group := range [][]*ir.HeaderFooter{append([]*ir.HeaderFooter{section.Header}, section.Headers...), append([]*ir.HeaderFooter{section.Footer}, section.Footers...)} {
+			seen := map[ir.HeaderFooterKind]bool{}
+			for _, part := range group {
+				if part == nil {
+					continue
+				}
+				if part.Kind < ir.HeaderFooterDefault || part.Kind > ir.HeaderFooterEven || seen[part.Kind] {
+					report.addUnsupported("header-footer-variants")
+					continue
+				}
+				seen[part.Kind] = true
+				walkDocumentBlocks(part.Blocks, &report)
+			}
 		}
 		walkDocumentBlocks(section.Blocks, &report)
 	}
@@ -219,10 +216,12 @@ func walkDocumentBlocks(blocks []ir.Block, report *FidelityReport) {
 				report.addUnsupported("images")
 			}
 		case *ir.Bookmark:
-			report.addUnsupported("bookmarks")
+			if value.Start != nil && (value.End == nil || value.Start.Offset < 0 || value.End.Offset < 0) {
+				report.addUnsupported("bookmark-ranges")
+			}
 		case *ir.Paragraph:
-			if len(value.Footnotes) > 0 {
-				report.addUnsupported("footnotes")
+			for _, note := range value.Footnotes {
+				walkDocumentBlocks(note.Blocks, report)
 			}
 			for _, run := range value.Runs {
 				inspectRunValues(run.Attrs, report)

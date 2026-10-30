@@ -7,6 +7,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/lean-docs/lean/pkg/ir"
 	"github.com/lean-docs/lean/pkg/units"
@@ -23,8 +24,10 @@ type xmlParagraph struct {
 }
 
 type xmlBookmark struct {
-	ID   string `xml:"id,attr"`
-	Name string `xml:"name,attr"`
+	Offset int    `xml:"-"`
+	End    bool   `xml:"-"`
+	ID     string `xml:"id,attr"`
+	Name   string `xml:"name,attr"`
 }
 
 func (paragraph *xmlParagraph) UnmarshalXML(decoder *xml.Decoder, start xml.StartElement) error {
@@ -58,10 +61,17 @@ func (paragraph *xmlParagraph) UnmarshalXML(decoder *xml.Decoder, start xml.Star
 					hyperlink.Runs[index].HyperlinkAnchor = hyperlink.Anchor
 				}
 				paragraph.Runs = append(paragraph.Runs, hyperlink.Runs...)
-			case "bookmarkStart":
+			case "bookmarkStart", "bookmarkEnd":
 				var bookmark xmlBookmark
 				if err := decoder.DecodeElement(&bookmark, &element); err != nil {
 					return err
+				}
+				bookmark.End = element.Name.Local == "bookmarkEnd"
+				for _, run := range paragraph.Runs {
+					for _, text := range run.Text {
+						bookmark.Offset += len(utf16.Encode([]rune(text.Value)))
+					}
+					bookmark.Offset += len(run.Breaks)
 				}
 				paragraph.Bookmarks = append(paragraph.Bookmarks, bookmark)
 			default:
@@ -327,10 +337,21 @@ type xmlMarEdge struct {
 }
 
 type xmlSectionProps struct {
+	Columns *xmlColumns     `xml:"cols"`
 	Size    *xmlPageSize    `xml:"pgSz"`
 	Margins *xmlPageMargins `xml:"pgMar"`
 	Headers []xmlSectionRef `xml:"headerReference"`
 	Footers []xmlSectionRef `xml:"footerReference"`
+}
+
+type xmlColumns struct {
+	Count   int         `xml:"num,attr"`
+	Space   string      `xml:"space,attr"`
+	Columns []xmlColumn `xml:"col"`
+}
+type xmlColumn struct {
+	Width string `xml:"w,attr"`
+	Space string `xml:"space,attr"`
 }
 
 type xmlSectionRef struct {
@@ -373,7 +394,7 @@ func parseDocument(xmlBytes []byte, doc *ir.Document, images map[string]imageRes
 		return fmt.Errorf("ooxml: could not find <w:body>: %w", err)
 	}
 
-	section := ir.Section{}
+	section := ir.Section{Properties: ir.NewDocument().Sections[0].Properties}
 	ctx := &parseCtx{section: &section, images: images, hyperlinks: hyperlinks, headers: headers, footers: footers, styleNumbering: styleNumbering, footnotes: footnotes}
 	for {
 		token, err := dec.Token()
@@ -395,7 +416,7 @@ func parseDocument(xmlBytes []byte, doc *ir.Document, images map[string]imageRes
 				if paragraph.Props != nil && paragraph.Props.Section != nil {
 					applySectionProps(&section, paragraph.Props.Section, ctx)
 					doc.Sections = append(doc.Sections, section)
-					section = ir.Section{}
+					section = ir.Section{Properties: section.Properties}
 					ctx.section = &section
 				}
 			case "tbl":
@@ -442,6 +463,7 @@ type parseCtx struct {
 	footers        map[string]*ir.HeaderFooter
 	styleNumbering map[string]*ir.NumberingRef
 	footnotes      map[string]ir.Footnote
+	bookmarks      map[string]*ir.Bookmark
 }
 
 func (c *parseCtx) nextParaID() string {
@@ -541,8 +563,36 @@ func applySectionProps(section *ir.Section, properties *xmlSectionProps, context
 		section.Properties.MarginBottom = twipAttr(properties.Margins.Bottom)
 		section.Properties.MarginLeft = twipAttr(properties.Margins.Left)
 	}
+	if properties.Columns != nil {
+		section.Columns = nil
+		for _, column := range properties.Columns.Columns {
+			section.Columns = append(section.Columns, ir.Column{Width: twipAttr(column.Width), Spacing: twipAttr(column.Space)})
+		}
+		if len(section.Columns) == 0 && properties.Columns.Count > 1 {
+			gap := twipAttr(properties.Columns.Space)
+			count := properties.Columns.Count
+			width := (section.Properties.Width - section.Properties.MarginLeft - section.Properties.MarginRight - float64(count-1)*gap) / float64(count)
+			for i := 0; i < count; i++ {
+				section.Columns = append(section.Columns, ir.Column{Width: width, Spacing: gap})
+			}
+		}
+	}
+	section.Headers = otherHeaderFooters(properties.Headers, context.headers)
+	section.Footers = otherHeaderFooters(properties.Footers, context.footers)
 	section.Header = preferredHeaderFooter(properties.Headers, context.headers)
 	section.Footer = preferredHeaderFooter(properties.Footers, context.footers)
+}
+
+func otherHeaderFooters(references []xmlSectionRef, parts map[string]*ir.HeaderFooter) []*ir.HeaderFooter {
+	preferred := preferredHeaderFooter(references, parts)
+	var result []*ir.HeaderFooter
+	for _, reference := range references {
+		current := preferredHeaderFooter([]xmlSectionRef{reference}, parts)
+		if current != nil && (preferred == nil || current.Kind != preferred.Kind) {
+			result = append(result, current)
+		}
+	}
+	return result
 }
 
 func preferredHeaderFooter(references []xmlSectionRef, parts map[string]*ir.HeaderFooter) *ir.HeaderFooter {
@@ -565,13 +615,16 @@ func preferredHeaderFooter(references []xmlSectionRef, parts map[string]*ir.Head
 	return nil
 }
 
-func parseHeaderFooter(content []byte, root string, kind ir.HeaderFooterKind) (*ir.HeaderFooter, error) {
+func parseHeaderFooter(content []byte, root string, kind ir.HeaderFooterKind, resources ...*parseCtx) (*ir.HeaderFooter, error) {
 	decoder := xml.NewDecoder(bytes.NewReader(content))
 	if err := advanceToNS(decoder, wNS, root); err != nil {
 		return nil, err
 	}
 	value := &ir.HeaderFooter{Kind: kind}
 	context := &parseCtx{}
+	if len(resources) > 0 {
+		context = resources[0]
+	}
 	if err := parseBlocks(decoder, root, &value.Blocks, context); err != nil {
 		return nil, err
 	}
@@ -597,12 +650,20 @@ func convertParagraph(xp xmlParagraph, id string, context *parseCtx) *ir.Paragra
 		value := *context.styleNumbering[p.Style]
 		p.Numbering = &value
 	}
+	offset := 0
 	for _, xr := range xp.Runs {
 		p.Runs = append(p.Runs, convertRun(xr, context))
 		if xr.FootnoteReference != nil {
 			if footnote, ok := context.footnotes[xr.FootnoteReference.ID]; ok {
+				position := offset
+				footnote.Offset = &position
 				p.Footnotes = append(p.Footnotes, footnote)
 			}
+		}
+		run := p.Runs[len(p.Runs)-1]
+		offset += len(utf16.Encode([]rune(run.Text)))
+		if run.Break != ir.BreakNone {
+			offset++
 		}
 	}
 	return p
@@ -610,7 +671,7 @@ func convertParagraph(xp xmlParagraph, id string, context *parseCtx) *ir.Paragra
 
 func convertParagraphBlocks(paragraph xmlParagraph, context *parseCtx) []ir.Block {
 	blocks := make([]ir.Block, 0, 1)
-	if paragraph.Props != nil || paragraphHasText(paragraph) || !paragraphHasDrawing(paragraph) {
+	if len(paragraph.Bookmarks) > 0 || paragraph.Props != nil || paragraphHasText(paragraph) || !paragraphHasDrawing(paragraph) {
 		blocks = append(blocks, convertParagraph(paragraph, context.nextParaID(), context))
 	}
 	for _, run := range paragraph.Runs {
@@ -620,9 +681,27 @@ func convertParagraphBlocks(paragraph xmlParagraph, context *parseCtx) []ir.Bloc
 			}
 		}
 	}
+	if context.bookmarks == nil {
+		context.bookmarks = make(map[string]*ir.Bookmark)
+	}
+	var paragraphID string
+	if len(blocks) > 0 {
+		if value, ok := blocks[0].(*ir.Paragraph); ok {
+			paragraphID = value.ID
+		}
+	}
 	for _, bookmark := range paragraph.Bookmarks {
+		position := &ir.BookmarkPosition{ParagraphID: paragraphID, Offset: bookmark.Offset}
+		if bookmark.End {
+			if opened := context.bookmarks[bookmark.ID]; opened != nil {
+				opened.End = position
+			}
+			continue
+		}
 		if bookmark.Name != "" {
-			blocks = append(blocks, &ir.Bookmark{ID: bookmark.ID, Name: bookmark.Name})
+			value := &ir.Bookmark{ID: bookmark.ID, Name: bookmark.Name, Start: position}
+			context.bookmarks[bookmark.ID] = value
+			blocks = append(blocks, value)
 		}
 	}
 	return blocks
@@ -768,7 +847,7 @@ func applyRunProps(a *ir.RunAttrs, p *xmlRunProps) {
 	}
 	if p.Color != nil && p.Color.Val != "" && p.Color.Val != "auto" {
 		if c, ok := parseHexColor(p.Color.Val); ok {
-			a.Color = c
+			a.SetColor(c)
 		}
 	}
 	if p.Highlight != nil && p.Highlight.Val != "" {
@@ -786,19 +865,21 @@ func applyRunProps(a *ir.RunAttrs, p *xmlRunProps) {
 
 func applyParaProps(a *ir.ParaAttrs, p *xmlParaProps) {
 	if p.Align != nil {
-		a.Align = alignFromVal(p.Align.Val)
+		a.SetAlignment(alignFromVal(p.Align.Val))
 	}
 	if p.Spacing != nil {
 		a.Spacing.Before = twipAttr(p.Spacing.Before)
 		a.Spacing.After = twipAttr(p.Spacing.After)
 		a.Spacing.Line = twipAttr(p.Spacing.Line)
 		a.Spacing.LineRule = lineRuleFromVal(p.Spacing.LineRule)
+		a.SetSpacing(a.Spacing)
 	}
 	if p.Indent != nil {
 		a.Indent.Left = twipAttr(p.Indent.Left)
 		a.Indent.Right = twipAttr(p.Indent.Right)
 		a.Indent.FirstLine = twipAttr(p.Indent.FirstLine)
 		a.Indent.Hanging = twipAttr(p.Indent.Hanging)
+		a.SetIndent(a.Indent)
 	}
 	if p.Tabs != nil {
 		for _, t := range p.Tabs.Tabs {
@@ -809,18 +890,18 @@ func applyParaProps(a *ir.ParaAttrs, p *xmlParaProps) {
 			})
 		}
 	}
-	if toggleOn(p.KeepLines) {
-		a.KeepTogether = true
+	if p.KeepLines != nil {
+		a.SetKeepTogether(toggleOn(p.KeepLines))
 	}
-	if toggleOn(p.KeepNext) {
-		a.KeepWithNext = true
+	if p.KeepNext != nil {
+		a.SetKeepWithNext(toggleOn(p.KeepNext))
 	}
-	if toggleOn(p.PageBreakBefore) {
-		a.PageBreakBefore = true
+	if p.PageBreakBefore != nil {
+		a.SetPageBreakBefore(toggleOn(p.PageBreakBefore))
 	}
 	if p.OutlineLevel != nil {
 		if level, err := strconv.Atoi(p.OutlineLevel.Val); err == nil {
-			a.OutlineLevel = level
+			a.SetOutlineLevel(level)
 		}
 	}
 	if p.Borders != nil {
@@ -834,8 +915,8 @@ func applyParaProps(a *ir.ParaAttrs, p *xmlParaProps) {
 			a.Shading = color
 		}
 	}
-	if toggleOn(p.BiDi) {
-		a.BiDi = true
+	if p.BiDi != nil {
+		a.SetBiDi(toggleOn(p.BiDi))
 	}
 }
 

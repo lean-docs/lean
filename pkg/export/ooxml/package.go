@@ -16,13 +16,19 @@ import (
 var ErrNilDocument = errors.New("ooxml exporter: document is nil")
 
 type packageState struct {
-	doc          *ir.Document
-	images       []*ir.Image
-	hyperlinks   []string
-	hyperlinkIDs map[string]int
-	hasHeader    bool
-	hasFooter    bool
-	hasFootnotes bool
+	bookmarkEvents    map[*ir.Paragraph][]bookmarkEvent
+	anchoredBookmarks map[*ir.Bookmark]bool
+	doc               *ir.Document
+	images            []*ir.Image
+	hyperlinks        []string
+	hyperlinkIDs      map[string]int
+	hasFootnotes      bool
+	auxiliary         []auxiliaryPart
+	footnoteIDs       map[*ir.Paragraph][]int
+	notes             []ir.Footnote
+	imageIDs          map[*ir.Image]int
+	numbering         []ir.NumberingDef
+	numberingIDs      map[*ir.Paragraph]string
 }
 
 func buildPackage(doc *ir.Document) ([]byte, error) {
@@ -38,20 +44,22 @@ func buildPackage(doc *ir.Document) ([]byte, error) {
 		"word/document.xml":            state.documentXML(),
 		"word/_rels/document.xml.rels": state.documentRelationships(),
 	}
-	if len(doc.Styles.Numbering) > 0 {
-		parts["word/numbering.xml"] = numberingXML(doc.Styles.Numbering)
+	if len(state.numbering) > 0 {
+		parts["word/numbering.xml"] = numberingXML(state.numbering)
 	}
 	if len(doc.Styles.Named) > 0 || doc.Styles.Defaults != (ir.RunAttrs{}) {
 		parts["word/styles.xml"] = stylesXML(doc.Styles)
 	}
-	if state.hasHeader {
-		parts["word/header1.xml"] = headerFooterXML("hdr", firstHeader(doc))
-	}
-	if state.hasFooter {
-		parts["word/footer1.xml"] = headerFooterXML("ftr", firstFooter(doc))
+	for _, part := range state.auxiliary {
+		parts["word/"+part.filename] = headerFooterXML(part.element, part.value, state)
+		parts["word/_rels/"+part.filename+".rels"] = state.contentRelationships()
 	}
 	if state.hasFootnotes {
-		parts["word/footnotes.xml"] = footnotesXML(doc)
+		parts["word/footnotes.xml"] = state.footnotesXML()
+		parts["word/_rels/footnotes.xml.rels"] = state.contentRelationships()
+	}
+	if state.hasEvenVariant() {
+		parts["word/settings.xml"] = xmlDeclaration + `<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:evenAndOddHeaders/></w:settings>`
 	}
 	for name, content := range parts {
 		if err := writePart(writer, name, []byte(content)); err != nil {
@@ -71,28 +79,19 @@ func buildPackage(doc *ir.Document) ([]byte, error) {
 }
 
 func inspect(doc *ir.Document) *packageState {
-	state := &packageState{doc: doc, hyperlinkIDs: make(map[string]int)}
-	for _, section := range doc.Sections {
-		state.hasHeader = state.hasHeader || section.Header != nil
-		state.hasFooter = state.hasFooter || section.Footer != nil
-		walkBlocks(section.Blocks, func(block ir.Block) {
-			switch value := block.(type) {
-			case *ir.Image:
-				state.images = append(state.images, value)
-			case *ir.Paragraph:
-				state.hasFootnotes = state.hasFootnotes || len(value.Footnotes) > 0
-				for _, run := range value.Runs {
-					if run.Hyperlink == nil || run.Hyperlink.URL == "" {
-						continue
-					}
-					if _, exists := state.hyperlinkIDs[run.Hyperlink.URL]; !exists {
-						state.hyperlinks = append(state.hyperlinks, run.Hyperlink.URL)
-						state.hyperlinkIDs[run.Hyperlink.URL] = len(state.hyperlinks)
-					}
-				}
-			}
-		})
+	state := &packageState{doc: doc, hyperlinkIDs: make(map[string]int), footnoteIDs: make(map[*ir.Paragraph][]int), imageIDs: make(map[*ir.Image]int)}
+	for sectionIndex, section := range doc.Sections {
+		state.collectBlocks(section.Blocks)
+		state.addAuxiliary(sectionIndex, "hdr", section.Header, section.Headers)
+		state.addAuxiliary(sectionIndex, "ftr", section.Footer, section.Footers)
 	}
+	for index := 0; index < len(state.notes); index++ {
+		state.collectBlocks(state.notes[index].Blocks)
+	}
+	state.hasFootnotes = len(state.notes) > 0
+	state.prepareNumbering()
+	state.prepareBookmarks()
+
 	return state
 }
 
@@ -112,12 +111,25 @@ func walkBlocks(blocks []ir.Block, visit func(ir.Block)) {
 func (state *packageState) documentXML() string {
 	var body strings.Builder
 	imageIndex := 0
-	for _, section := range state.doc.Sections {
-		for _, block := range section.Blocks {
+	for sectionIndex, section := range state.doc.Sections {
+		var properties strings.Builder
+		writeSectionProperties(&properties, section, state.auxiliaryReferences(sectionIndex))
+		for index, block := range section.Blocks {
+			if sectionIndex < len(state.doc.Sections)-1 && index == len(section.Blocks)-1 {
+				if paragraph, ok := block.(*ir.Paragraph); ok {
+					writeParagraph(&body, paragraph, state, properties.String())
+					continue
+				}
+			}
 			writeBlock(&body, block, &imageIndex, state)
 		}
-		writeSectionProperties(&body, section, state.hasHeader, state.hasFooter)
+		if sectionIndex == len(state.doc.Sections)-1 {
+			body.WriteString(properties.String())
+		} else if len(section.Blocks) == 0 || section.Blocks[len(section.Blocks)-1].BlockType() != ir.BlockParagraph {
+			body.WriteString("<w:p><w:pPr>" + properties.String() + "</w:pPr></w:p>")
+		}
 	}
+
 	if len(state.doc.Sections) == 0 {
 		body.WriteString("<w:sectPr/>")
 	}
@@ -132,20 +144,44 @@ func writeBlock(output *strings.Builder, block ir.Block, imageIndex *int, state 
 		writeTable(output, value, imageIndex, state)
 	case *ir.Image:
 		*imageIndex = *imageIndex + 1
-		writeImage(output, value, *imageIndex)
+		index := *imageIndex
+		if state != nil {
+			index = state.imageIDs[value]
+		}
+		writeImage(output, value, index)
 	case *ir.Bookmark:
+		if state != nil && state.anchoredBookmarks[value] {
+			return
+		}
 		output.WriteString(`<w:p><w:bookmarkStart w:id="` + escape(value.ID) + `" w:name="` + escape(value.Name) + `"/><w:bookmarkEnd w:id="` + escape(value.ID) + `"/></w:p>`)
 	}
 }
 
-func writeParagraph(output *strings.Builder, paragraph *ir.Paragraph, state *packageState) {
+func writeParagraph(output *strings.Builder, paragraph *ir.Paragraph, state *packageState, section ...string) {
 	output.WriteString("<w:p>")
-	writeParagraphProperties(output, paragraph)
-	for _, run := range paragraph.Runs {
-		writeRun(output, run, state)
+	var properties strings.Builder
+	formatted := *paragraph
+	if state != nil && paragraph.Numbering != nil {
+		reference := *paragraph.Numbering
+		reference.ID = state.numberingIDs[paragraph]
+		formatted.Numbering = &reference
 	}
-	for index := range paragraph.Footnotes {
-		output.WriteString(`<w:r><w:footnoteReference w:id="` + strconv.Itoa(index+1) + `"/></w:r>`)
+	writeParagraphProperties(&properties, &formatted)
+	content := properties.String()
+	if len(section) > 0 {
+		if content == "" {
+			content = "<w:pPr>" + section[0] + "</w:pPr>"
+		} else {
+			content = strings.Replace(content, "</w:pPr>", section[0]+"</w:pPr>", 1)
+		}
+	}
+	output.WriteString(content)
+	if state != nil && len(state.bookmarkEvents[paragraph]) > 0 {
+		state.writeBookmarkedRuns(output, paragraph)
+	} else {
+		for _, run := range paragraph.Runs {
+			writeRun(output, run, state)
+		}
 	}
 	output.WriteString("</w:p>")
 }
@@ -162,13 +198,13 @@ func writeParagraphProperties(output *strings.Builder, paragraph *ir.Paragraph) 
 	if paragraph.Numbering != nil {
 		output.WriteString(`<w:numPr><w:ilvl w:val="` + strconv.Itoa(paragraph.Numbering.Level) + `"/><w:numId w:val="` + escape(paragraph.Numbering.ID) + `"/></w:numPr>`)
 	}
-	if attrs.Align != ir.AlignLeft {
+	if attrs.AlignmentSpecified() {
 		output.WriteString(`<w:jc w:val="` + alignment(attrs.Align) + `"/>`)
 	}
-	if attrs.Spacing != (ir.Spacing{}) {
+	if attrs.SpacingSpecified() {
 		output.WriteString(`<w:spacing w:before="` + twips(attrs.Spacing.Before) + `" w:after="` + twips(attrs.Spacing.After) + `" w:line="` + twips(attrs.Spacing.Line) + `" w:lineRule="` + lineRule(attrs.Spacing.LineRule) + `"/>`)
 	}
-	if attrs.Indent != (ir.Indent{}) {
+	if attrs.IndentSpecified() {
 		output.WriteString(`<w:ind w:left="` + twips(attrs.Indent.Left) + `" w:right="` + twips(attrs.Indent.Right) + `" w:firstLine="` + twips(attrs.Indent.FirstLine) + `" w:hanging="` + twips(attrs.Indent.Hanging) + `"/>`)
 	}
 	if len(attrs.TabStops) > 0 {
@@ -178,30 +214,46 @@ func writeParagraphProperties(output *strings.Builder, paragraph *ir.Paragraph) 
 		}
 		output.WriteString("</w:tabs>")
 	}
-	if attrs.KeepTogether {
-		output.WriteString("<w:keepLines/>")
+	if attrs.KeepTogetherSpecified() {
+		if attrs.KeepTogether {
+			output.WriteString("<w:keepLines/>")
+		} else {
+			output.WriteString(`<w:keepLines w:val="0"/>`)
+		}
 	}
-	if attrs.KeepWithNext {
-		output.WriteString("<w:keepNext/>")
+	if attrs.KeepWithNextSpecified() {
+		if attrs.KeepWithNext {
+			output.WriteString("<w:keepNext/>")
+		} else {
+			output.WriteString(`<w:keepNext w:val="0"/>`)
+		}
 	}
-	if attrs.PageBreakBefore {
-		output.WriteString("<w:pageBreakBefore/>")
+	if attrs.PageBreakBeforeSpecified() {
+		if attrs.PageBreakBefore {
+			output.WriteString("<w:pageBreakBefore/>")
+		} else {
+			output.WriteString(`<w:pageBreakBefore w:val="0"/>`)
+		}
 	}
-	if attrs.OutlineLevel > 0 {
+	if attrs.OutlineLevelSpecified() {
 		output.WriteString(`<w:outlineLvl w:val="` + strconv.Itoa(attrs.OutlineLevel) + `"/>`)
 	}
 	writeParagraphBorders(output, attrs.Borders)
 	if attrs.Shading != (ir.Color{}) {
 		output.WriteString(`<w:shd w:val="clear" w:fill="` + color(attrs.Shading) + `"/>`)
 	}
-	if attrs.BiDi {
-		output.WriteString("<w:bidi/>")
+	if attrs.BiDiSpecified() {
+		if attrs.BiDi {
+			output.WriteString("<w:bidi/>")
+		} else {
+			output.WriteString(`<w:bidi w:val="0"/>`)
+		}
 	}
 	output.WriteString("</w:pPr>")
 }
 
 func hasParagraphProperties(attrs ir.ParaAttrs) bool {
-	return attrs.Align != ir.AlignLeft || attrs.Spacing != (ir.Spacing{}) || attrs.Indent != (ir.Indent{}) || len(attrs.TabStops) > 0 || attrs.KeepTogether || attrs.KeepWithNext || attrs.PageBreakBefore || attrs.OutlineLevel > 0 || attrs.Borders != (ir.ParaBorders{}) || attrs.Shading != (ir.Color{}) || attrs.BiDi
+	return attrs.AlignmentSpecified() || attrs.SpacingSpecified() || attrs.IndentSpecified() || len(attrs.TabStops) > 0 || attrs.KeepTogetherSpecified() || attrs.KeepWithNextSpecified() || attrs.PageBreakBeforeSpecified() || attrs.OutlineLevelSpecified() || attrs.Borders != (ir.ParaBorders{}) || attrs.Shading != (ir.Color{}) || attrs.BiDiSpecified()
 }
 
 func writeRun(output *strings.Builder, run ir.Run, state *packageState) {
@@ -284,7 +336,7 @@ func writeRunProperties(output *strings.Builder, attrs ir.RunAttrs) {
 	if attrs.FontName != "" {
 		output.WriteString(`<w:rFonts w:ascii="` + escape(attrs.FontName) + `" w:hAnsi="` + escape(attrs.FontName) + `"/>`)
 	}
-	if attrs.Color != (ir.Color{}) {
+	if attrs.ColorSpecified() {
 		output.WriteString(`<w:color w:val="` + color(attrs.Color) + `"/>`)
 	}
 	if attrs.BaselineSpecified() {
@@ -382,13 +434,20 @@ func writeImage(output *strings.Builder, image *ir.Image, index int) {
 	output.WriteString(fmt.Sprintf(`<w:p><w:r><w:drawing><wp:inline><wp:extent cx="%d" cy="%d"/><wp:docPr id="%d" name="Image %d" descr="%s"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:blipFill><a:blip r:embed="rIdImage%d"/></pic:blipFill><pic:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`, cx, cy, index, index, escape(image.Alt), index))
 }
 
-func writeSectionProperties(output *strings.Builder, section ir.Section, header, footer bool) {
-	output.WriteString("<w:sectPr>")
-	if header {
-		output.WriteString(`<w:headerReference w:type="default" r:id="rIdHeader"/>`)
+func writeSectionProperties(output *strings.Builder, section ir.Section, references string) {
+	output.WriteString("<w:sectPr>" + references)
+	for _, value := range append(append([]*ir.HeaderFooter{section.Header, section.Footer}, section.Headers...), section.Footers...) {
+		if value != nil && value.Kind == ir.HeaderFooterFirst {
+			output.WriteString("<w:titlePg/>")
+			break
+		}
 	}
-	if footer {
-		output.WriteString(`<w:footerReference w:type="default" r:id="rIdFooter"/>`)
+	if len(section.Columns) > 0 {
+		output.WriteString(`<w:cols w:num="` + strconv.Itoa(len(section.Columns)) + `" w:equalWidth="0">`)
+		for _, column := range section.Columns {
+			output.WriteString(`<w:col w:w="` + twips(column.Width) + `" w:space="` + twips(column.Spacing) + `"/>`)
+		}
+		output.WriteString(`</w:cols>`)
 	}
 	properties := section.Properties
 	if properties.Width > 0 || properties.Height > 0 {
@@ -404,17 +463,17 @@ func writeSectionProperties(output *strings.Builder, section ir.Section, header,
 
 func (state *packageState) contentTypes() string {
 	content := `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>`
-	if len(state.doc.Styles.Numbering) > 0 {
+	if len(state.numbering) > 0 {
 		content += `<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>`
 	}
 	if len(state.doc.Styles.Named) > 0 || state.doc.Styles.Defaults != (ir.RunAttrs{}) {
 		content += `<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>`
 	}
-	if state.hasHeader {
-		content += `<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>`
+	for _, part := range state.auxiliary {
+		content += `<Override PartName="/word/` + part.filename + `" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.` + part.kind + `+xml"/>`
 	}
-	if state.hasFooter {
-		content += `<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>`
+	if state.hasEvenVariant() {
+		content += `<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>`
 	}
 	if state.hasFootnotes {
 		content += `<Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/>`
@@ -428,28 +487,38 @@ func (state *packageState) contentTypes() string {
 
 func (state *packageState) documentRelationships() string {
 	content := ""
-	if len(state.doc.Styles.Numbering) > 0 {
+	if len(state.numbering) > 0 {
 		content += `<Relationship Id="rIdNumbering" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>`
 	}
 	if len(state.doc.Styles.Named) > 0 || state.doc.Styles.Defaults != (ir.RunAttrs{}) {
 		content += `<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`
 	}
-	if state.hasHeader {
-		content += `<Relationship Id="rIdHeader" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>`
+	for _, part := range state.auxiliary {
+		content += `<Relationship Id="` + part.relationship + `" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/` + part.kind + `" Target="` + part.filename + `"/>`
 	}
-	if state.hasFooter {
-		content += `<Relationship Id="rIdFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>`
+	if state.hasEvenVariant() {
+		content += `<Relationship Id="rIdSettings" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>`
 	}
 	if state.hasFootnotes {
 		content += `<Relationship Id="rIdFootnotes" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/>`
 	}
+	return relationshipXML(content + state.contentRelationshipEntries())
+}
+func (state *packageState) contentRelationshipEntries() string {
+	content := ""
 	for index := range state.images {
 		content += `<Relationship Id="rIdImage` + strconv.Itoa(index+1) + `" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image` + strconv.Itoa(index+1) + `.` + imageExtension(state.images[index].Format) + `"/>`
 	}
 	for index, target := range state.hyperlinks {
 		content += `<Relationship Id="rIdHyperlink` + strconv.Itoa(index+1) + `" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="` + escape(target) + `" TargetMode="External"/>`
 	}
+	return content
+}
+func relationshipXML(content string) string {
 	return xmlDeclaration + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` + content + `</Relationships>`
+}
+func (state *packageState) contentRelationships() string {
+	return relationshipXML(state.contentRelationshipEntries())
 }
 
 func numberingXML(definitions []ir.NumberingDef) string {
@@ -462,7 +531,10 @@ func numberingXML(definitions []ir.NumberingDef) string {
 			if start == 0 {
 				start = 1
 			}
-			content.WriteString(`<w:lvl w:ilvl="` + strconv.Itoa(level.Level) + `"><w:start w:val="` + strconv.Itoa(start) + `"/><w:numFmt w:val="` + numberFormat(level.Format) + `"/><w:lvlText w:val="` + escape(level.Text) + `"/></w:lvl>`)
+			content.WriteString(`<w:lvl w:ilvl="` + strconv.Itoa(level.Level) + `"><w:start w:val="` + strconv.Itoa(start) + `"/><w:numFmt w:val="` + numberFormat(level.Format) + `"/><w:lvlText w:val="` + escape(level.Text) + `"/><w:lvlJc w:val="` + alignment(level.Align) + `"/>`)
+			writeParagraphProperties(&content, &ir.Paragraph{Para: ir.ParaAttrs{Indent: level.Indent}})
+			writeRunProperties(&content, level.RunAttrs)
+			content.WriteString(`</w:lvl>`)
 		}
 		content.WriteString(`</w:abstractNum><w:num w:numId="` + escape(definition.ID) + `"><w:abstractNumId w:val="` + strconv.Itoa(id) + `"/></w:num>`)
 	}
@@ -494,63 +566,41 @@ func stylesXML(sheet ir.StyleSheet) string {
 		if style.BasedOn != "" {
 			content.WriteString(`<w:basedOn w:val="` + escape(style.BasedOn) + `"/>`)
 		}
-		writeParagraphProperties(&content, &ir.Paragraph{Para: style.ParaAttrs})
+		properties := style.ParaAttrs
+		if !style.IsChar && strings.EqualFold(style.ID, "Heading1") && !properties.OutlineLevelSpecified() {
+			properties.SetOutlineLevel(0)
+		}
+		writeParagraphProperties(&content, &ir.Paragraph{Para: properties})
 		writeRunProperties(&content, style.RunAttrs)
 		content.WriteString("</w:style>")
 	}
 	return xmlDeclaration + `<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` + content.String() + `</w:styles>`
 }
 
-func headerFooterXML(element string, value *ir.HeaderFooter) string {
+func headerFooterXML(element string, value *ir.HeaderFooter, state *packageState) string {
 	var content strings.Builder
 	if value != nil {
 		index := 0
 		for _, block := range value.Blocks {
-			writeBlock(&content, block, &index, nil)
+			writeBlock(&content, block, &index, state)
 		}
 	}
-	return xmlDeclaration + `<w:` + element + ` xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` + content.String() + `</w:` + element + `>`
+	return xmlDeclaration + `<w:` + element + ` xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` + content.String() + `</w:` + element + `>`
 }
 
-func footnotesXML(doc *ir.Document) string {
+func (state *packageState) footnotesXML() string {
 	var content strings.Builder
-	index := 0
-	for _, section := range doc.Sections {
-		walkBlocks(section.Blocks, func(block ir.Block) {
-			paragraph, ok := block.(*ir.Paragraph)
-			if !ok {
-				return
-			}
-			for _, note := range paragraph.Footnotes {
-				index++
-				content.WriteString(`<w:footnote w:id="` + strconv.Itoa(index) + `">`)
-				image := 0
-				for _, nested := range note.Blocks {
-					writeBlock(&content, nested, &image, nil)
-				}
-				content.WriteString(`</w:footnote>`)
-			}
-		})
+	for index, note := range state.notes {
+		content.WriteString(`<w:footnote w:id="` + strconv.Itoa(index+1) + `">`)
+		image := 0
+		for _, block := range note.Blocks {
+			writeBlock(&content, block, &image, state)
+		}
+		content.WriteString(`</w:footnote>`)
 	}
-	return xmlDeclaration + `<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` + content.String() + `</w:footnotes>`
+	return xmlDeclaration + `<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` + content.String() + `</w:footnotes>`
 }
 
-func firstHeader(doc *ir.Document) *ir.HeaderFooter {
-	for _, section := range doc.Sections {
-		if section.Header != nil {
-			return section.Header
-		}
-	}
-	return nil
-}
-func firstFooter(doc *ir.Document) *ir.HeaderFooter {
-	for _, section := range doc.Sections {
-		if section.Footer != nil {
-			return section.Footer
-		}
-	}
-	return nil
-}
 func writePart(writer *zip.Writer, name string, data []byte) error {
 	part, err := writer.Create(name)
 	if err != nil {

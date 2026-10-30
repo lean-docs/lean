@@ -1,0 +1,78 @@
+package ooxml
+
+import (
+	"strconv"
+	"strings"
+
+	"github.com/lean-docs/lean/pkg/ir"
+)
+
+type auxiliaryPart struct {
+	section                               int
+	kind, element, filename, relationship string
+	value                                 *ir.HeaderFooter
+}
+
+func (state *packageState) collectBlocks(blocks []ir.Block) {
+	walkBlocks(blocks, func(block ir.Block) {
+		switch value := block.(type) {
+		case *ir.Image:
+			if state.imageIDs[value] == 0 {
+				state.images = append(state.images, value)
+				state.imageIDs[value] = len(state.images)
+			}
+		case *ir.Paragraph:
+			for _, note := range value.Footnotes {
+				state.notes = append(state.notes, note)
+				state.footnoteIDs[value] = append(state.footnoteIDs[value], len(state.notes))
+			}
+			for _, run := range value.Runs {
+				if run.Hyperlink != nil && run.Hyperlink.URL != "" && state.hyperlinkIDs[run.Hyperlink.URL] == 0 {
+					state.hyperlinks = append(state.hyperlinks, run.Hyperlink.URL)
+					state.hyperlinkIDs[run.Hyperlink.URL] = len(state.hyperlinks)
+				}
+			}
+		}
+	})
+}
+
+func (state *packageState) addAuxiliary(section int, element string, primary *ir.HeaderFooter, others []*ir.HeaderFooter) {
+	values := append([]*ir.HeaderFooter{primary}, others...)
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+		kind := "header"
+		if element == "ftr" {
+			kind = "footer"
+		}
+		index := 0
+		for _, part := range state.auxiliary {
+			if part.kind == kind {
+				index++
+			}
+		}
+		id := strconv.Itoa(index + 1)
+		state.auxiliary = append(state.auxiliary, auxiliaryPart{section: section, kind: kind, element: element, filename: kind + id + ".xml", relationship: "rId" + map[string]string{"header": "Header", "footer": "Footer"}[kind] + id, value: value})
+		state.collectBlocks(value.Blocks)
+	}
+}
+func (state *packageState) auxiliaryReferences(section int) string {
+	var content strings.Builder
+	for _, part := range state.auxiliary {
+		if part.section != section {
+			continue
+		}
+		kind := []string{"default", "first", "even"}[part.value.Kind]
+		content.WriteString(`<w:` + part.kind + `Reference w:type="` + kind + `" r:id="` + part.relationship + `"/>`)
+	}
+	return content.String()
+}
+func (state *packageState) hasEvenVariant() bool {
+	for _, part := range state.auxiliary {
+		if part.value.Kind == ir.HeaderFooterEven {
+			return true
+		}
+	}
+	return false
+}

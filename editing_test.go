@@ -5,6 +5,7 @@ import (
 	lean "github.com/lean-docs/lean"
 	"github.com/lean-docs/lean/pkg/ir"
 	"github.com/stretchr/testify/require"
+	"math"
 	"testing"
 )
 
@@ -150,4 +151,38 @@ func TestDocumentCommandsPreserveFootnoteAnchors(t *testing.T) {
 	reopened, _, err := lean.OpenDOCX(content)
 	require.NoError(t, err)
 	require.Equal(t, 10, *reopened.Sections[0].Blocks[0].(*ir.Paragraph).Footnotes[0].Offset)
+}
+
+func TestSectionSplitDoesNotShareBlockStorage(t *testing.T) {
+	for _, command := range []lean.DocumentCommand{
+		{ID: "paragraph.insert", At: 1, Text: "Added"},
+		{ID: "paragraph.split", Block: "one", At: 1},
+		{ID: "table.insert", At: 1, Rows: 1, Columns: 1},
+	} {
+		t.Run(command.ID, func(t *testing.T) {
+			document := lean.NewDOCX("First")
+			document.Sections[0].Blocks = []ir.Block{editingParagraph("one", "First"), editingParagraph("two", "Second"), editingParagraph("three", "Third"), editingParagraph("four", "Fourth")}
+			edited, err := lean.ApplyDOCXCommands(document, []lean.DocumentCommand{{ID: "section.insert", At: 2}, command})
+			require.NoError(t, err)
+			require.Equal(t, "Third", edited.Sections[1].Blocks[0].(*ir.Paragraph).Runs[0].Text)
+			require.Equal(t, "Fourth", edited.Sections[1].Blocks[1].(*ir.Paragraph).Runs[0].Text)
+			content, _, err := lean.SaveDOCX(edited)
+			require.NoError(t, err)
+			reopened, _, err := lean.OpenDOCX(content)
+			require.NoError(t, err)
+			require.Equal(t, "Third", reopened.Sections[1].Blocks[0].(*ir.Paragraph).Runs[0].Text)
+		})
+	}
+}
+
+func TestCanonicalSaveRejectsNonFiniteColumnSpacing(t *testing.T) {
+	for _, spacing := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		document := lean.NewDOCX("Columns")
+		document.Sections[0].Columns = []ir.Column{{Width: 120, Spacing: spacing}, {Width: 120}}
+		content, report, err := lean.SaveDOCX(document)
+		require.ErrorIs(t, err, lean.ErrUnsupportedDocument)
+		require.Nil(t, content)
+		require.False(t, report.Editable)
+		require.Contains(t, report.Unsupported, "page-columns")
+	}
 }

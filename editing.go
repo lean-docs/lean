@@ -243,7 +243,7 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 		if err := json.Unmarshal(data, &next); err != nil {
 			return err
 		}
-		next.Blocks = section.Blocks[command.At:]
+		next.Blocks = slices.Clone(section.Blocks[command.At:])
 		section.Blocks = section.Blocks[:command.At]
 		if len(section.Blocks) == 0 {
 			section.Blocks = []ir.Block{newEditingParagraph("")}

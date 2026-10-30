@@ -184,7 +184,7 @@ func inspectDocument(document *ir.Document) FidelityReport {
 	}
 	for _, section := range document.Sections {
 		for _, column := range section.Columns {
-			if column.Width <= 0 || column.Spacing < 0 || math.IsNaN(column.Width) || math.IsInf(column.Width, 0) {
+			if column.Width <= 0 || column.Spacing < 0 || !finite(column.Width) || !finite(column.Spacing) {
 				report.addUnsupported("page-columns")
 			}
 		}

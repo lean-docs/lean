@@ -85,6 +85,20 @@ func Parse(input []byte) (*ir.Document, error) {
 	if len(doc.Sections) == 0 {
 		doc.Sections = append(doc.Sections, ir.Section{})
 	}
+	settingsXML, settingsErr := readOptionalEntry(r, "word/settings.xml")
+	if settingsErr != nil {
+		return nil, settingsErr
+	}
+	var settings struct {
+		Even *xmlValAttr `xml:"evenAndOddHeaders"`
+	}
+	if len(settingsXML) > 0 {
+		if err := xml.Unmarshal(settingsXML, &settings); err != nil {
+			return nil, err
+		}
+	}
+	even := settings.Even != nil && settings.Even.Val != "0" && settings.Even.Val != "false" && settings.Even.Val != "off"
+	doc.EvenAndOddHeaders = &even
 	return doc, nil
 }
 

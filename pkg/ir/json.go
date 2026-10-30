@@ -53,6 +53,8 @@ func blockTypeName(b Block) (string, error) {
 		return "table", nil
 	case *Image:
 		return "image", nil
+	case *Shape:
+		return "shape", nil
 	case *Bookmark:
 		return "bookmark", nil
 	default:
@@ -80,6 +82,12 @@ func unmarshalBlock(env blockEnvelope) (Block, error) {
 			return nil, err
 		}
 		return &img, nil
+	case "shape":
+		var shape Shape
+		if err := json.Unmarshal(env.Data, &shape); err != nil {
+			return nil, err
+		}
+		return &shape, nil
 	case "bookmark":
 		var b Bookmark
 		if err := json.Unmarshal(env.Data, &b); err != nil {

@@ -140,6 +140,7 @@ type xmlTab struct {
 }
 
 type xmlRun struct {
+	DrawingOffsets    []int        `xml:"-"`
 	Props             *xmlRunProps `xml:"rPr"`
 	Text              []xmlText    `xml:"t"`
 	Breaks            []xmlBreak   `xml:"br"`
@@ -155,21 +156,44 @@ type xmlDrawing struct {
 }
 
 type xmlDrawingContainer struct {
-	Extent      *xmlExtent      `xml:"extent"`
-	DocPr       *xmlDocPr       `xml:"docPr"`
-	PositionH   *xmlPosition    `xml:"positionH"`
-	WrapSquare  *xmlDrawingWrap `xml:"wrapSquare"`
-	WrapTight   *xmlDrawingWrap `xml:"wrapTight"`
-	WrapThrough *xmlDrawingWrap `xml:"wrapThrough"`
-	Graphic     xmlGraphic      `xml:"graphic"`
+	DistanceTop    string          `xml:"distT,attr"`
+	DistanceBottom string          `xml:"distB,attr"`
+	DistanceLeft   string          `xml:"distL,attr"`
+	DistanceRight  string          `xml:"distR,attr"`
+	Behind         string          `xml:"behindDoc,attr"`
+	Overlap        string          `xml:"allowOverlap,attr"`
+	InCell         string          `xml:"layoutInCell,attr"`
+	ZOrder         uint32          `xml:"relativeHeight,attr"`
+	PositionV      *xmlPosition    `xml:"positionV"`
+	WrapNone       *struct{}       `xml:"wrapNone"`
+	WrapTopBottom  *struct{}       `xml:"wrapTopAndBottom"`
+	Extent         *xmlExtent      `xml:"extent"`
+	DocPr          *xmlDocPr       `xml:"docPr"`
+	PositionH      *xmlPosition    `xml:"positionH"`
+	WrapSquare     *xmlDrawingWrap `xml:"wrapSquare"`
+	WrapTight      *xmlDrawingWrap `xml:"wrapTight"`
+	WrapThrough    *xmlDrawingWrap `xml:"wrapThrough"`
+	Graphic        xmlGraphic      `xml:"graphic"`
 }
 
 type xmlPosition struct {
-	Align string `xml:"align"`
+	Relative string `xml:"relativeFrom,attr"`
+	Offset   string `xml:"posOffset"`
+	Align    string `xml:"align"`
 }
 
+type xmlDrawingPoint struct {
+	X int64 `xml:"x,attr"`
+	Y int64 `xml:"y,attr"`
+}
+type xmlDrawingPolygon struct {
+	Edited string            `xml:"edited,attr"`
+	Start  xmlDrawingPoint   `xml:"start"`
+	Lines  []xmlDrawingPoint `xml:"lineTo"`
+}
 type xmlDrawingWrap struct {
-	Text string `xml:"wrapText,attr"`
+	Polygon *xmlDrawingPolygon `xml:"wrapPolygon"`
+	Text    string             `xml:"wrapText,attr"`
 }
 
 type xmlExtent struct {
@@ -187,15 +211,32 @@ type xmlGraphic struct {
 }
 
 type xmlGraphicData struct {
-	Picture xmlPicture `xml:"pic"`
+	Shape   *xmlWordShape `xml:"wsp"`
+	Picture xmlPicture    `xml:"pic"`
 }
 
 type xmlPicture struct {
-	BlipFill xmlBlipFill `xml:"blipFill"`
+	Properties *xmlPictureProperties `xml:"spPr"`
+	BlipFill   xmlBlipFill           `xml:"blipFill"`
 }
 
+type xmlPictureProperties struct {
+	Transform *xmlPictureTransform `xml:"xfrm"`
+}
+type xmlPictureTransform struct {
+	Rotation string `xml:"rot,attr"`
+	FlipH    string `xml:"flipH,attr"`
+	FlipV    string `xml:"flipV,attr"`
+}
+type xmlCrop struct {
+	Left   string `xml:"l,attr"`
+	Right  string `xml:"r,attr"`
+	Top    string `xml:"t,attr"`
+	Bottom string `xml:"b,attr"`
+}
 type xmlBlipFill struct {
-	Blip xmlBlip `xml:"blip"`
+	Crop *xmlCrop `xml:"srcRect"`
+	Blip xmlBlip  `xml:"blip"`
 }
 
 type xmlBlip struct {
@@ -337,12 +378,13 @@ type xmlMarEdge struct {
 }
 
 type xmlSectionProps struct {
-	Break   *xmlValAttr     `xml:"type"`
-	Columns *xmlColumns     `xml:"cols"`
-	Size    *xmlPageSize    `xml:"pgSz"`
-	Margins *xmlPageMargins `xml:"pgMar"`
-	Headers []xmlSectionRef `xml:"headerReference"`
-	Footers []xmlSectionRef `xml:"footerReference"`
+	TitlePage *xmlValAttr     `xml:"titlePg"`
+	Break     *xmlValAttr     `xml:"type"`
+	Columns   *xmlColumns     `xml:"cols"`
+	Size      *xmlPageSize    `xml:"pgSz"`
+	Margins   *xmlPageMargins `xml:"pgMar"`
+	Headers   []xmlSectionRef `xml:"headerReference"`
+	Footers   []xmlSectionRef `xml:"footerReference"`
 }
 
 type xmlColumns struct {
@@ -554,6 +596,8 @@ func applySectionProps(section *ir.Section, properties *xmlSectionProps, context
 	if section == nil || properties == nil {
 		return
 	}
+	differentFirst := properties.TitlePage != nil && properties.TitlePage.Val != "0" && properties.TitlePage.Val != "false" && properties.TitlePage.Val != "off"
+	section.Properties.DifferentFirstPage = &differentFirst
 	if properties.Break != nil {
 		section.Break = properties.Break.Val
 	}
@@ -688,14 +732,44 @@ func convertParagraph(xp xmlParagraph, id string, context *parseCtx) *ir.Paragra
 
 func convertParagraphBlocks(paragraph xmlParagraph, context *parseCtx) []ir.Block {
 	blocks := make([]ir.Block, 0, 1)
-	if len(paragraph.Bookmarks) > 0 || paragraph.Props != nil || paragraphHasText(paragraph) || !paragraphHasDrawing(paragraph) {
+	count := 0
+	for _, run := range paragraph.Runs {
+		count += len(run.Drawings)
+	}
+	if len(paragraph.Bookmarks) > 0 || paragraph.Props != nil || paragraphHasText(paragraph) || count != 1 {
 		blocks = append(blocks, convertParagraph(paragraph, context.nextParaID(), context))
 	}
+	offset := 0
 	for _, run := range paragraph.Runs {
-		for _, drawing := range run.Drawings {
+		for drawingIndex, drawing := range run.Drawings {
+			drawingOffset := offset
+			if drawingIndex < len(run.DrawingOffsets) {
+				drawingOffset += run.DrawingOffsets[drawingIndex]
+			}
+			if shape := convertShape(drawing, context); shape != nil {
+				if len(blocks) > 0 {
+					if paragraph, ok := blocks[0].(*ir.Paragraph); ok {
+						shape.Anchor.ParagraphID = paragraph.ID
+						shape.Anchor.Offset = drawingOffset
+					}
+				}
+				blocks = append(blocks, shape)
+			}
 			if image := convertDrawing(drawing, context); image != nil {
+				if len(blocks) > 0 {
+					if p, ok := blocks[0].(*ir.Paragraph); ok {
+						image.Anchor.ParagraphID = p.ID
+						image.Anchor.Offset = drawingOffset
+					}
+				}
 				blocks = append(blocks, image)
 			}
+		}
+		for _, text := range run.Text {
+			offset += len(utf16.Encode([]rune(text.Value)))
+		}
+		if len(run.Breaks) > 0 {
+			offset++
 		}
 	}
 	if context.bookmarks == nil {
@@ -733,15 +807,6 @@ func paragraphHasText(paragraph xmlParagraph) bool {
 	return false
 }
 
-func paragraphHasDrawing(paragraph xmlParagraph) bool {
-	for _, run := range paragraph.Runs {
-		if len(run.Drawings) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 func convertDrawing(drawing xmlDrawing, context *parseCtx) *ir.Image {
 	container := drawing.Inline
 	float := ir.FloatNone
@@ -756,7 +821,7 @@ func convertDrawing(drawing xmlDrawing, context *parseCtx) *ir.Image {
 	if !ok {
 		return nil
 	}
-	image := &ir.Image{ID: context.nextImageID(), Data: resource.Data, Format: resource.Format, Float: float}
+	image := &ir.Image{ID: context.nextImageID(), Data: resource.Data, Format: resource.Format, Float: float, Anchor: drawingAnchor(drawing, container)}
 	if container.DocPr != nil {
 		image.Alt = container.DocPr.Description
 		if image.Alt == "" {

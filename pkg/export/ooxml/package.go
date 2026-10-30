@@ -16,6 +16,9 @@ import (
 var ErrNilDocument = errors.New("ooxml exporter: document is nil")
 
 type packageState struct {
+	anchoredShapes    map[*ir.Shape]bool
+	drawingIDs        map[ir.Block]int
+	anchoredImages    map[*ir.Image]bool
 	bookmarkEvents    map[*ir.Paragraph][]bookmarkEvent
 	anchoredBookmarks map[*ir.Bookmark]bool
 	doc               *ir.Document
@@ -79,7 +82,7 @@ func buildPackage(doc *ir.Document) ([]byte, error) {
 }
 
 func inspect(doc *ir.Document) *packageState {
-	state := &packageState{doc: doc, hyperlinkIDs: make(map[string]int), footnoteIDs: make(map[*ir.Paragraph][]int), imageIDs: make(map[*ir.Image]int)}
+	state := &packageState{drawingIDs: make(map[ir.Block]int), doc: doc, hyperlinkIDs: make(map[string]int), footnoteIDs: make(map[*ir.Paragraph][]int), imageIDs: make(map[*ir.Image]int)}
 	for sectionIndex, section := range doc.Sections {
 		state.collectBlocks(section.Blocks)
 		state.addAuxiliary(sectionIndex, "hdr", section.Header, section.Headers)
@@ -98,6 +101,9 @@ func inspect(doc *ir.Document) *packageState {
 func walkBlocks(blocks []ir.Block, visit func(ir.Block)) {
 	for _, block := range blocks {
 		visit(block)
+		if shape, ok := block.(*ir.Shape); ok {
+			walkBlocks(shape.Blocks, visit)
+		}
 		if table, ok := block.(*ir.Table); ok {
 			for _, row := range table.Rows {
 				for _, cell := range row.Cells {
@@ -133,7 +139,7 @@ func (state *packageState) documentXML() string {
 	if len(state.doc.Sections) == 0 {
 		body.WriteString("<w:sectPr/>")
 	}
-	return xmlDeclaration + `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>` + body.String() + `</w:body></w:document>`
+	return xmlDeclaration + `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"><w:body>` + body.String() + `</w:body></w:document>`
 }
 
 func writeBlock(output *strings.Builder, block ir.Block, imageIndex *int, state *packageState) {
@@ -143,12 +149,22 @@ func writeBlock(output *strings.Builder, block ir.Block, imageIndex *int, state 
 	case *ir.Table:
 		writeTable(output, value, imageIndex, state)
 	case *ir.Image:
+		if state != nil && state.anchoredImages[value] {
+			return
+		}
 		*imageIndex = *imageIndex + 1
 		index := *imageIndex
 		if state != nil {
 			index = state.imageIDs[value]
 		}
-		writeImage(output, value, index)
+		writeImage(output, value, index, state)
+	case *ir.Shape:
+		if state != nil && state.anchoredShapes[value] {
+			return
+		}
+		output.WriteString("<w:p>")
+		writeShapeRun(output, value, state)
+		output.WriteString("</w:p>")
 	case *ir.Bookmark:
 		if state != nil && state.anchoredBookmarks[value] {
 			return
@@ -279,7 +295,14 @@ func writeRunContent(output *strings.Builder, run ir.Run) {
 	output.WriteString("<w:r>")
 	writeRunProperties(output, run.Attrs)
 	if run.Text != "" {
-		output.WriteString(`<w:t xml:space="preserve">` + escape(run.Text) + `</w:t>`)
+		for index, text := range strings.Split(run.Text, "\t") {
+			if index > 0 {
+				output.WriteString("<w:tab/>")
+			}
+			if text != "" {
+				output.WriteString(`<w:t xml:space="preserve">` + escape(text) + `</w:t>`)
+			}
+		}
 	}
 	if run.Break != ir.BreakNone {
 		output.WriteString(`<w:br w:type="` + breakType(run.Break) + `"/>`)
@@ -422,16 +445,10 @@ func writeTable(output *strings.Builder, table *ir.Table, imageIndex *int, state
 	output.WriteString("</w:tbl>")
 }
 
-func writeImage(output *strings.Builder, image *ir.Image, index int) {
-	cx := int64(image.Width * 12700)
-	cy := int64(image.Height * 12700)
-	if cx == 0 {
-		cx = 914400
-	}
-	if cy == 0 {
-		cy = 914400
-	}
-	output.WriteString(fmt.Sprintf(`<w:p><w:r><w:drawing><wp:inline><wp:extent cx="%d" cy="%d"/><wp:docPr id="%d" name="Image %d" descr="%s"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:blipFill><a:blip r:embed="rIdImage%d"/></pic:blipFill><pic:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`, cx, cy, index, index, escape(image.Alt), index))
+func writeImage(output *strings.Builder, image *ir.Image, index int, state *packageState) {
+	output.WriteString("<w:p>")
+	writeDrawingRun(output, image, index, state)
+	output.WriteString("</w:p>")
 }
 
 func writeSectionProperties(output *strings.Builder, section ir.Section, references string) {
@@ -462,12 +479,21 @@ func writeSectionProperties(output *strings.Builder, section ir.Section, referen
 		}
 		output.WriteString(`</w:cols>`)
 	}
-	for _, value := range append(append([]*ir.HeaderFooter{section.Header, section.Footer}, section.Headers...), section.Footers...) {
-		if value != nil && value.Kind == ir.HeaderFooterFirst {
-			output.WriteString("<w:titlePg/>")
-			break
+	differentFirst := false
+	if properties.DifferentFirstPage != nil {
+		differentFirst = *properties.DifferentFirstPage
+	} else {
+		for _, value := range append(append([]*ir.HeaderFooter{section.Header, section.Footer}, section.Headers...), section.Footers...) {
+			if value != nil && value.Kind == ir.HeaderFooterFirst {
+				differentFirst = true
+				break
+			}
 		}
 	}
+	if differentFirst {
+		output.WriteString("<w:titlePg/>")
+	}
+
 	output.WriteString("</w:sectPr>")
 }
 
@@ -595,7 +621,7 @@ func headerFooterXML(element string, value *ir.HeaderFooter, state *packageState
 			writeBlock(&content, block, &index, state)
 		}
 	}
-	return xmlDeclaration + `<w:` + element + ` xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` + content.String() + `</w:` + element + `>`
+	return xmlDeclaration + `<w:` + element + ` xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">` + content.String() + `</w:` + element + `>`
 }
 
 func (state *packageState) footnotesXML() string {
@@ -608,7 +634,7 @@ func (state *packageState) footnotesXML() string {
 		}
 		content.WriteString(`</w:footnote>`)
 	}
-	return xmlDeclaration + `<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` + content.String() + `</w:footnotes>`
+	return xmlDeclaration + `<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">` + content.String() + `</w:footnotes>`
 }
 
 func writePart(writer *zip.Writer, name string, data []byte) error {

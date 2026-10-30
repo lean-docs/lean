@@ -15,6 +15,11 @@ type auxiliaryPart struct {
 
 func (state *packageState) collectBlocks(blocks []ir.Block) {
 	walkBlocks(blocks, func(block ir.Block) {
+		if block.BlockType() == ir.BlockImage || block.BlockType() == ir.BlockShape {
+			if state.drawingIDs[block] == 0 {
+				state.drawingIDs[block] = len(state.drawingIDs) + 1
+			}
+		}
 		switch value := block.(type) {
 		case *ir.Image:
 			if state.imageIDs[value] == 0 {
@@ -69,6 +74,9 @@ func (state *packageState) auxiliaryReferences(section int) string {
 	return content.String()
 }
 func (state *packageState) hasEvenVariant() bool {
+	if state.doc.EvenAndOddHeaders != nil {
+		return *state.doc.EvenAndOddHeaders
+	}
 	for _, part := range state.auxiliary {
 		if part.value.Kind == ir.HeaderFooterEven {
 			return true

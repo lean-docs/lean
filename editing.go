@@ -17,31 +17,36 @@ import (
 var ErrInvalidCommand = errors.New("lean: invalid document command")
 
 type DocumentCommand struct {
-	SectionBreak    string              `json:"section_break,omitempty"`
-	Footnote        *ir.Footnote        `json:"footnote,omitempty"`
-	StyleDefinition *ir.Style           `json:"style_definition,omitempty"`
-	Bookmark        *ir.Bookmark        `json:"bookmark,omitempty"`
-	ID              string              `json:"id"`
-	Section         int                 `json:"section,omitempty"`
-	Part            string              `json:"part,omitempty"`
-	Variant         ir.HeaderFooterKind `json:"variant,omitempty"`
-	Block           string              `json:"block,omitempty"`
-	At              int                 `json:"at,omitempty"`
-	Start           int                 `json:"start,omitempty"`
-	End             int                 `json:"end,omitempty"`
-	Text            string              `json:"text,omitempty"`
-	Style           string              `json:"style,omitempty"`
-	Run             *ir.RunAttrs        `json:"run,omitempty"`
-	Paragraph       *ir.ParaAttrs       `json:"paragraph,omitempty"`
-	Numbering       *ir.NumberingDef    `json:"numbering,omitempty"`
-	Level           int                 `json:"level,omitempty"`
-	Restart         *int                `json:"restart,omitempty"`
-	Rows            int                 `json:"rows,omitempty"`
-	Columns         int                 `json:"columns,omitempty"`
-	Page            *ir.PageProperties  `json:"page,omitempty"`
-	ColumnsLayout   []ir.Column         `json:"columns_layout,omitempty"`
-	HeaderFooter    *ir.HeaderFooter    `json:"header_footer,omitempty"`
-	Hyperlink       *ir.Hyperlink       `json:"hyperlink,omitempty"`
+	EvenAndOddHeaders  *bool               `json:"even_and_odd_headers,omitempty"`
+	DifferentFirstPage *bool               `json:"different_first_page,omitempty"`
+	Image              *ir.Image           `json:"image,omitempty"`
+	Shape              *ir.Shape           `json:"shape,omitempty"`
+	Drawing            *DrawingLayout      `json:"drawing,omitempty"`
+	SectionBreak       string              `json:"section_break,omitempty"`
+	Footnote           *ir.Footnote        `json:"footnote,omitempty"`
+	StyleDefinition    *ir.Style           `json:"style_definition,omitempty"`
+	Bookmark           *ir.Bookmark        `json:"bookmark,omitempty"`
+	ID                 string              `json:"id"`
+	Section            int                 `json:"section,omitempty"`
+	Part               string              `json:"part,omitempty"`
+	Variant            ir.HeaderFooterKind `json:"variant,omitempty"`
+	Block              string              `json:"block,omitempty"`
+	At                 int                 `json:"at,omitempty"`
+	Start              int                 `json:"start,omitempty"`
+	End                int                 `json:"end,omitempty"`
+	Text               string              `json:"text,omitempty"`
+	Style              string              `json:"style,omitempty"`
+	Run                *ir.RunAttrs        `json:"run,omitempty"`
+	Paragraph          *ir.ParaAttrs       `json:"paragraph,omitempty"`
+	Numbering          *ir.NumberingDef    `json:"numbering,omitempty"`
+	Level              int                 `json:"level,omitempty"`
+	Restart            *int                `json:"restart,omitempty"`
+	Rows               int                 `json:"rows,omitempty"`
+	Columns            int                 `json:"columns,omitempty"`
+	Page               *ir.PageProperties  `json:"page,omitempty"`
+	ColumnsLayout      []ir.Column         `json:"columns_layout,omitempty"`
+	HeaderFooter       *ir.HeaderFooter    `json:"header_footer,omitempty"`
+	Hyperlink          *ir.Hyperlink       `json:"hyperlink,omitempty"`
 }
 
 type DocumentCommandInfo struct {
@@ -58,8 +63,9 @@ func DOCXCommands() []DocumentCommandInfo {
 		{"paragraph.format", "paragraph-formatting"}, {"paragraph.style", "paragraph-formatting"}, {"paragraph.insert", "text"}, {"paragraph.delete", "text"}, {"paragraph.split", "text"}, {"paragraph.join", "text"},
 		{"list.set", "lists"}, {"list.remove", "lists"},
 		{"table.insert", "tables"}, {"table.delete", "tables"}, {"table.row.insert", "tables"}, {"table.row.delete", "tables"}, {"table.column.insert", "tables"}, {"table.column.delete", "tables"},
+		{"image.insert", "images"}, {"shape.insert", "shapes"}, {"drawing.layout", "drawing-anchors"}, {"drawing.delete", "drawing-anchors"},
 		{"page.layout", "page-layout"}, {"page.columns", "page-columns"}, {"section.insert", "sections"}, {"section.delete", "sections"}, {"section.break", "sections"},
-		{"header.set", "headers"}, {"header.remove", "headers"}, {"footer.set", "footers"}, {"footer.remove", "footers"},
+		{"header.options", "headers"}, {"header.set", "headers"}, {"header.remove", "headers"}, {"footer.set", "footers"}, {"footer.remove", "footers"},
 	}
 }
 
@@ -124,6 +130,11 @@ func findCommandBlock(blocks *[]ir.Block, id string) (*[]ir.Block, int, error) {
 		if block.BlockID() == id {
 			return blocks, index, nil
 		}
+		if shape, ok := block.(*ir.Shape); ok {
+			if parent, index, err := findCommandBlock(&shape.Blocks, id); err == nil {
+				return parent, index, nil
+			}
+		}
 		if table, ok := block.(*ir.Table); ok {
 			for row := range table.Rows {
 				for cell := range table.Rows[row].Cells {
@@ -144,6 +155,17 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 	}
 	section := &document.Sections[command.Section]
 	switch command.ID {
+	case "header.options":
+		if command.EvenAndOddHeaders == nil && command.DifferentFirstPage == nil {
+			return errors.New("header options are required")
+		}
+		if command.EvenAndOddHeaders != nil {
+			document.EvenAndOddHeaders = command.EvenAndOddHeaders
+		}
+		if command.DifferentFirstPage != nil {
+			section.Properties.DifferentFirstPage = command.DifferentFirstPage
+		}
+		return nil
 	case "style.set":
 		if command.StyleDefinition == nil || command.StyleDefinition.ID == "" {
 			return errors.New("a named style definition is required")
@@ -280,6 +302,9 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 	blocks, err := commandBlocks(document, command)
 	if err != nil {
 		return err
+	}
+	if strings.HasPrefix(command.ID, "image.") || strings.HasPrefix(command.ID, "shape.") || strings.HasPrefix(command.ID, "drawing.") {
+		return applyDrawingCommand(blocks, command)
 	}
 	if command.ID == "paragraph.insert" || command.ID == "table.insert" {
 		if command.At < 0 || command.At > len(*blocks) {

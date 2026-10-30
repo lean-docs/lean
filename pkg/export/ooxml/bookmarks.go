@@ -10,6 +10,8 @@ import (
 )
 
 type bookmarkEvent struct {
+	image    *ir.Image
+	shape    *ir.Shape
 	noteID   int
 	offset   int
 	id, name string
@@ -29,6 +31,8 @@ func paragraphTextLength(paragraph *ir.Paragraph) int {
 func (state *packageState) prepareBookmarks() {
 	state.bookmarkEvents = make(map[*ir.Paragraph][]bookmarkEvent)
 	state.anchoredBookmarks = make(map[*ir.Bookmark]bool)
+	state.anchoredImages = make(map[*ir.Image]bool)
+	state.anchoredShapes = make(map[*ir.Shape]bool)
 	next := 0
 	collect := func(blocks []ir.Block) {
 		paragraphs := map[string]*ir.Paragraph{}
@@ -38,6 +42,20 @@ func (state *packageState) prepareBookmarks() {
 				paragraphs[p.ID] = p
 				if first == nil {
 					first = p
+				}
+			}
+		})
+		walkBlocks(blocks, func(block ir.Block) {
+			if shape, ok := block.(*ir.Shape); ok && shape.Anchor != nil && shape.Anchor.ParagraphID != "" {
+				if paragraph := paragraphs[shape.Anchor.ParagraphID]; paragraph != nil {
+					state.anchoredShapes[shape] = true
+					state.bookmarkEvents[paragraph] = append(state.bookmarkEvents[paragraph], bookmarkEvent{offset: shape.Anchor.Offset, shape: shape})
+				}
+			}
+			if image, ok := block.(*ir.Image); ok && image.Anchor != nil && image.Anchor.ParagraphID != "" {
+				if paragraph := paragraphs[image.Anchor.ParagraphID]; paragraph != nil {
+					state.anchoredImages[image] = true
+					state.bookmarkEvents[paragraph] = append(state.bookmarkEvents[paragraph], bookmarkEvent{offset: image.Anchor.Offset, image: image})
 				}
 			}
 		})
@@ -110,7 +128,11 @@ func (state *packageState) writeBookmarkedRuns(output *strings.Builder, paragrap
 	emit := func() {
 		for next < len(events) && events[next].offset == offset {
 			event := events[next]
-			if event.noteID > 0 {
+			if event.shape != nil {
+				writeShapeRun(output, event.shape, state)
+			} else if event.image != nil {
+				writeDrawingRun(output, event.image, state.imageIDs[event.image], state)
+			} else if event.noteID > 0 {
 				output.WriteString(`<w:r><w:footnoteReference w:id="` + strconv.Itoa(event.noteID) + `"/></w:r>`)
 			} else if event.end {
 				output.WriteString(`<w:bookmarkEnd w:id="` + event.id + `"/>`)

@@ -73,7 +73,7 @@ func SaveDOCX(document *ir.Document) ([]byte, FidelityReport, error) {
 }
 
 func inspectDOCX(input []byte) (FidelityReport, error) {
-	report := FidelityReport{Format: "docx", Preserved: []string{"text", "run-formatting", "explicit-run-toggles", "explicit-run-values", "underline-variants", "paragraph-formatting", "explicit-paragraph-values", "explicit-run-colour", "lists", "page-layout", "sections", "headers", "footers", "footnotes", "page-columns", "list-restarts", "bookmarks", "hyperlinks", "tables"}}
+	report := FidelityReport{Format: "docx", Preserved: []string{"text", "run-formatting", "explicit-run-toggles", "explicit-run-values", "underline-variants", "paragraph-formatting", "explicit-paragraph-values", "explicit-run-colour", "lists", "page-layout", "sections", "headers", "footers", "footnotes", "page-columns", "list-restarts", "bookmarks", "hyperlinks", "tables", "images", "drawing-anchors", "shapes", "text-boxes"}}
 	reader, err := zip.NewReader(bytes.NewReader(input), int64(len(input)))
 	if err != nil {
 		return report, err
@@ -93,6 +93,7 @@ func inspectDOCX(input []byte) (FidelityReport, error) {
 				return report, readErr
 			}
 			inspectUnderlineProperties(content, &report)
+			inspectDrawingFeatures(content, &report)
 			auxiliaryXML.Write(content)
 			if file.Name == "word/document.xml" {
 				documentXML = string(content)
@@ -171,7 +172,7 @@ func hasNonDefaultTableStyle(documentXML string) bool {
 }
 
 func inspectDocument(document *ir.Document) FidelityReport {
-	report := FidelityReport{Format: "docx", Editable: document != nil, Preserved: []string{"text", "run-formatting", "explicit-run-toggles", "explicit-run-values", "underline-variants", "paragraph-formatting", "explicit-paragraph-values", "explicit-run-colour", "lists", "page-layout", "sections", "headers", "footers", "footnotes", "page-columns", "list-restarts", "bookmarks", "hyperlinks", "tables"}}
+	report := FidelityReport{Format: "docx", Editable: document != nil, Preserved: []string{"text", "run-formatting", "explicit-run-toggles", "explicit-run-values", "underline-variants", "paragraph-formatting", "explicit-paragraph-values", "explicit-run-colour", "lists", "page-layout", "sections", "headers", "footers", "footnotes", "page-columns", "list-restarts", "bookmarks", "hyperlinks", "tables", "images", "drawing-anchors", "shapes", "text-boxes"}}
 	if document == nil {
 		report.addUnsupported("document")
 		return report
@@ -211,8 +212,13 @@ func inspectDocument(document *ir.Document) FidelityReport {
 func walkDocumentBlocks(blocks []ir.Block, report *FidelityReport) {
 	for _, block := range blocks {
 		switch value := block.(type) {
+		case *ir.Shape:
+			if !finite(value.Width) || !finite(value.Height) || value.Width <= 0 || value.Height <= 0 || !slices.Contains([]string{"rect", "roundRect", "ellipse", "line"}, value.Geometry) {
+				report.addUnsupported("shape-geometry")
+			}
+			walkDocumentBlocks(value.Blocks, report)
 		case *ir.Image:
-			if len(value.Data) == 0 || value.Width <= 0 || value.Height <= 0 {
+			if len(value.Data) == 0 || !finite(value.Width) || !finite(value.Height) || value.Width <= 0 || value.Height <= 0 || value.Format < ir.ImagePNG || value.Format > ir.ImageSVG {
 				report.addUnsupported("images")
 			}
 		case *ir.Bookmark:

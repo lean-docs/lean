@@ -15,6 +15,7 @@ const (
 	BlockTable
 	BlockImage
 	BlockBookmark
+	BlockShape
 )
 
 // Orientation represents page orientation.
@@ -158,9 +159,10 @@ const (
 
 // Document is the root of the IR.
 type Document struct {
-	Meta     DocumentMeta `json:"meta"`
-	Styles   StyleSheet   `json:"styles"`
-	Sections []Section    `json:"sections"`
+	EvenAndOddHeaders *bool        `json:"even_and_odd_headers,omitempty"`
+	Meta              DocumentMeta `json:"meta"`
+	Styles            StyleSheet   `json:"styles"`
+	Sections          []Section    `json:"sections"`
 }
 
 // DocumentMeta contains document metadata.
@@ -223,16 +225,17 @@ type Column struct {
 
 // PageProperties defines page dimensions and margins.
 type PageProperties struct {
-	HeaderDistance *float64    `json:"header_distance,omitempty"`
-	FooterDistance *float64    `json:"footer_distance,omitempty"`
-	Gutter         float64     `json:"gutter,omitempty"`
-	Width          float64     `json:"width"`
-	Height         float64     `json:"height"`
-	MarginTop      float64     `json:"margin_top"`
-	MarginBottom   float64     `json:"margin_bottom"`
-	MarginLeft     float64     `json:"margin_left"`
-	MarginRight    float64     `json:"margin_right"`
-	Orientation    Orientation `json:"orientation"`
+	DifferentFirstPage *bool       `json:"different_first_page,omitempty"`
+	HeaderDistance     *float64    `json:"header_distance,omitempty"`
+	FooterDistance     *float64    `json:"footer_distance,omitempty"`
+	Gutter             float64     `json:"gutter,omitempty"`
+	Width              float64     `json:"width"`
+	Height             float64     `json:"height"`
+	MarginTop          float64     `json:"margin_top"`
+	MarginBottom       float64     `json:"margin_bottom"`
+	MarginLeft         float64     `json:"margin_left"`
+	MarginRight        float64     `json:"margin_right"`
+	Orientation        Orientation `json:"orientation"`
 }
 
 // HeaderFooter represents header or footer content.
@@ -440,13 +443,14 @@ type Padding struct {
 
 // Image is a block-level image element.
 type Image struct {
-	ID     string      `json:"id"`
-	Data   []byte      `json:"data"`
-	Format ImageFormat `json:"format"`
-	Width  float64     `json:"width"`
-	Height float64     `json:"height"`
-	Float  FloatMode   `json:"float"`
-	Alt    string      `json:"alt,omitempty"`
+	Anchor *DrawingAnchor `json:"anchor,omitempty"`
+	ID     string         `json:"id"`
+	Data   []byte         `json:"data"`
+	Format ImageFormat    `json:"format"`
+	Width  float64        `json:"width"`
+	Height float64        `json:"height"`
+	Float  FloatMode      `json:"float"`
+	Alt    string         `json:"alt,omitempty"`
 }
 
 func (i *Image) BlockType() BlockType { return BlockImage }

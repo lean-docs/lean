@@ -137,6 +137,8 @@ func walkStructuralBlocks(blocks []ir.Block, visit func(ir.Block)) {
 		}
 		visit(block)
 		switch value := block.(type) {
+		case *ir.Shape:
+			walkStructuralBlocks(value.Blocks, visit)
 		case *ir.Table:
 			for _, row := range value.Rows {
 				for _, cell := range row.Cells {
@@ -186,6 +188,33 @@ func inspectBookmarkRanges(blocks []ir.Block, report *FidelityReport) {
 		return anchor.Offset == 0 || anchor.Offset == len(paragraph.units) || paragraph.units[anchor.Offset-1] < 0xD800 || paragraph.units[anchor.Offset-1] > 0xDBFF
 	}
 	walkStructuralBlocks(blocks, func(block ir.Block) {
+		var anchor *ir.DrawingAnchor
+		switch value := block.(type) {
+		case *ir.Image:
+			anchor = value.Anchor
+		case *ir.Shape:
+			anchor = value.Anchor
+		}
+		if anchor != nil {
+			if !slices.Contains([]string{"", "none", "square", "topAndBottom", "tight", "through"}, anchor.Wrap) {
+				report.addUnsupported("drawing-wrap")
+			}
+			if anchor.Polygon != nil && (len(anchor.Polygon.Points) < 3 || len(anchor.Polygon.Points) > 4096) {
+				report.addUnsupported("drawing-polygon")
+			}
+
+			if anchor.ParagraphID != "" && !valid(&ir.BookmarkPosition{ParagraphID: anchor.ParagraphID, Offset: anchor.Offset}) {
+				report.addUnsupported("drawing-anchors")
+			}
+			for _, number := range []float64{anchor.Horizontal.Offset, anchor.Vertical.Offset, anchor.Rotation, anchor.Distance.Top, anchor.Distance.Bottom, anchor.Distance.Left, anchor.Distance.Right, anchor.Crop.Left, anchor.Crop.Right, anchor.Crop.Top, anchor.Crop.Bottom} {
+				if !finite(number) {
+					report.addUnsupported("drawing-measurements")
+				}
+			}
+			if anchor.Crop.Left+anchor.Crop.Right >= 1 || anchor.Crop.Top+anchor.Crop.Bottom >= 1 {
+				report.addUnsupported("drawing-crop")
+			}
+		}
 		bookmark, ok := block.(*ir.Bookmark)
 		if !ok || bookmark.Start == nil {
 			return

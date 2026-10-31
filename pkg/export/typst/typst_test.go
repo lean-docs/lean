@@ -174,11 +174,11 @@ func TestExportPageSetup(t *testing.T) {
 func TestExportHeaderFooter(t *testing.T) {
 	doc := ir.NewDocument()
 	doc.Sections[0].Header = &ir.HeaderFooter{
-		Kind:   ir.HeaderFooterDefault,
+		Type:   ir.HeaderFooterDefault,
 		Blocks: []ir.Block{&ir.Paragraph{ID: "h1", Runs: []ir.Run{{Text: "My Header"}}}},
 	}
 	doc.Sections[0].Footer = &ir.HeaderFooter{
-		Kind:   ir.HeaderFooterDefault,
+		Type:   ir.HeaderFooterDefault,
 		Blocks: []ir.Block{&ir.Paragraph{ID: "f1", Runs: []ir.Run{{Text: "My Footer"}}}},
 	}
 	out, err := typst.Export(doc)

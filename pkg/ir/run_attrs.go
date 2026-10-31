@@ -3,7 +3,7 @@ package ir
 import "encoding/json"
 
 const (
-	offBold uint8 = 1 << iota
+	offBold uint16 = 1 << iota
 	offItalic
 	offStrike
 	offSmallCaps
@@ -11,6 +11,7 @@ const (
 	offUnderline
 	offBaseline
 	offTracking
+	offColor
 )
 
 func (attrs *RunAttrs) SetBold(value bool) {
@@ -96,6 +97,7 @@ func (attrs RunAttrs) MarshalJSON() ([]byte, error) {
 		Tracking  *float64        `json:"tracking,omitempty"`
 		Baseline  *BaselineShift  `json:"baseline,omitempty"`
 		Underline *UnderlineStyle `json:"underline,omitempty"`
+		Color     *Color          `json:"color,omitempty"`
 	}{runAttrsAlias: runAttrsAlias(attrs),
 		Bold:      specifiedValue(attrs.Bold, attrs.BoldSpecified()),
 		Italic:    specifiedValue(attrs.Italic, attrs.ItalicSpecified()),
@@ -105,6 +107,7 @@ func (attrs RunAttrs) MarshalJSON() ([]byte, error) {
 		Tracking:  specifiedValue(attrs.Tracking, attrs.TrackingSpecified()),
 		Baseline:  specifiedValue(attrs.Baseline, attrs.BaselineSpecified()),
 		Underline: specifiedValue(attrs.Underline, attrs.UnderlineSpecified()),
+		Color:     specifiedValue(attrs.Color, attrs.ColorSpecified()),
 	})
 }
 
@@ -120,11 +123,15 @@ func (attrs *RunAttrs) UnmarshalJSON(content []byte) error {
 		Tracking  *float64        `json:"tracking"`
 		Baseline  *BaselineShift  `json:"baseline"`
 		Underline *UnderlineStyle `json:"underline"`
+		Color     *Color          `json:"color"`
 	}{runAttrsAlias: &decoded}
 	if err := json.Unmarshal(content, &input); err != nil {
 		return err
 	}
 	*attrs = RunAttrs(decoded)
+	if input.Color != nil {
+		attrs.SetColor(*input.Color)
+	}
 	if input.Bold != nil {
 		attrs.SetBold(*input.Bold)
 	}
@@ -177,11 +184,14 @@ func (base RunAttrs) Overlay(override RunAttrs) RunAttrs {
 	if override.FontName != "" {
 		base.FontName = override.FontName
 	}
-	if override.Color != (Color{}) {
-		base.Color = override.Color
+	if override.ColorSpecified() {
+		base.SetColor(override.Color)
 	}
 	if override.Highlight != (Color{}) {
 		base.Highlight = override.Highlight
+	}
+	if override.ShadingPattern != "" || override.Shading != (Color{}) {
+		base.Shading, base.ShadingPattern, base.ShadingForeground = override.Shading, override.ShadingPattern, override.ShadingForeground
 	}
 	if override.BaselineSpecified() {
 		base.SetBaseline(override.Baseline)
@@ -272,4 +282,16 @@ func (attrs *RunAttrs) InheritBaseline() {
 func (attrs *RunAttrs) InheritTracking() {
 	attrs.Tracking = 0
 	attrs.explicitZero &^= offTracking
+}
+
+func (attrs *RunAttrs) SetColor(value Color) {
+	attrs.Color = value
+	if value == (Color{}) {
+		attrs.explicitZero |= offColor
+	} else {
+		attrs.explicitZero &^= offColor
+	}
+}
+func (attrs RunAttrs) ColorSpecified() bool {
+	return attrs.Color != (Color{}) || attrs.explicitZero&offColor != 0
 }

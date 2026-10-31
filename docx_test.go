@@ -22,15 +22,21 @@ func TestOpenDOCXReportsSupportedCorpusFeatures(t *testing.T) {
 	assert.NotEmpty(t, document.Meta.Author)
 }
 
-func TestOpenDOCXPreservesImageWhileReportingOtherUnsupportedFeatures(t *testing.T) {
+func TestOpenDOCXPreservesImageAndSupportedAuxiliaryParts(t *testing.T) {
 	content, err := os.ReadFile("testdata/fixtures/ooxml/python-docx/having-images.docx")
 	require.NoError(t, err)
 	document, report, err := lean.OpenDOCX(content)
 	require.NoError(t, err)
-	assert.False(t, report.Editable)
+	assert.True(t, report.Editable)
+	assert.Empty(t, report.Unsupported)
+	exported, _, saveErr := lean.SaveDOCX(document)
+	require.NoError(t, saveErr)
+	restored, _, openErr := lean.OpenDOCX(exported)
+	require.NoError(t, openErr)
+	assert.True(t, documentHasImage(restored))
 	assert.NotContains(t, report.Unsupported, "images")
-	assert.Contains(t, report.Unsupported, "headers")
-	assert.Contains(t, report.Unsupported, "footnotes")
+	assert.NotContains(t, report.Unsupported, "headers")
+	assert.NotContains(t, report.Unsupported, "footnotes")
 	assert.True(t, documentHasImage(document))
 }
 
@@ -307,12 +313,21 @@ func TestOpenDOCXReadsDefaultHeaderAndFooter(t *testing.T) {
 	require.NoError(t, err)
 	document, report, err := lean.OpenDOCX(content)
 	require.NoError(t, err)
-	assert.Contains(t, report.Unsupported, "headers")
-	assert.Contains(t, report.Unsupported, "footers")
+	assert.NotContains(t, report.Unsupported, "headers")
+	assert.NotContains(t, report.Unsupported, "footers")
+	assert.True(t, report.Editable)
+	exported, _, saveErr := lean.SaveDOCX(document)
+	require.NoError(t, saveErr)
+	restored, _, openErr := lean.OpenDOCX(exported)
+	require.NoError(t, openErr)
+	require.NotNil(t, restored.Sections[0].Header)
+	require.NotNil(t, restored.Sections[0].Footer)
 	require.NotNil(t, document.Sections[0].Header)
 	require.NotNil(t, document.Sections[0].Footer)
 	assert.NotEmpty(t, document.Sections[0].Header.Blocks)
 	assert.NotEmpty(t, document.Sections[0].Footer.Blocks)
+	require.Len(t, document.Sections[0].Headers, 2)
+	require.Len(t, document.Sections[0].Footers, 2)
 }
 
 func floatPointer(value float64) *float64 {

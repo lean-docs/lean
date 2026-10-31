@@ -66,7 +66,11 @@ func Parse(input []byte) (*ir.Document, error) {
 	if footnotesXML, footnotesErr := readOptionalEntry(r, "word/footnotes.xml"); footnotesErr != nil {
 		return nil, footnotesErr
 	} else if len(footnotesXML) > 0 {
-		footnotes, err = parseFootnotes(footnotesXML)
+		noteImages, noteLinks, resourceErr := readPartResources(r, "word/footnotes.xml")
+		if resourceErr != nil {
+			return nil, resourceErr
+		}
+		footnotes, err = parseFootnotes(footnotesXML, &parseCtx{images: noteImages, hyperlinks: noteLinks})
 		if err != nil {
 			return nil, fmt.Errorf("ooxml: parse footnotes: %w", err)
 		}
@@ -81,6 +85,20 @@ func Parse(input []byte) (*ir.Document, error) {
 	if len(doc.Sections) == 0 {
 		doc.Sections = append(doc.Sections, ir.Section{})
 	}
+	settingsXML, settingsErr := readOptionalEntry(r, "word/settings.xml")
+	if settingsErr != nil {
+		return nil, settingsErr
+	}
+	var settings struct {
+		Even *xmlValAttr `xml:"evenAndOddHeaders"`
+	}
+	if len(settingsXML) > 0 {
+		if err := xml.Unmarshal(settingsXML, &settings); err != nil {
+			return nil, err
+		}
+	}
+	even := settings.Even != nil && settings.Even.Val != "0" && settings.Even.Val != "false" && settings.Even.Val != "off"
+	doc.EvenAndOddHeaders = &even
 	return doc, nil
 }
 
@@ -92,22 +110,30 @@ type xmlFootnote struct {
 	ID         string         `xml:"id,attr"`
 	Type       string         `xml:"type,attr"`
 	Paragraphs []xmlParagraph `xml:"p"`
+	Content    string         `xml:",innerxml"`
 }
 
-func parseFootnotes(content []byte) (map[string]ir.Footnote, error) {
+func parseFootnotes(content []byte, resources ...*parseCtx) (map[string]ir.Footnote, error) {
 	var source xmlFootnotes
 	if err := xml.Unmarshal(content, &source); err != nil {
 		return nil, err
 	}
 	result := make(map[string]ir.Footnote)
 	context := &parseCtx{}
+	if len(resources) > 0 {
+		context = resources[0]
+	}
 	for _, note := range source.Notes {
 		if note.Type != "" || note.ID == "" {
 			continue
 		}
 		footnote := ir.Footnote{ID: note.ID}
-		for _, paragraph := range note.Paragraphs {
-			footnote.Blocks = append(footnote.Blocks, convertParagraphBlocks(paragraph, context)...)
+		decoder := xml.NewDecoder(strings.NewReader(`<w:footnote xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` + note.Content + `</w:footnote>`))
+		if err := advanceToNS(decoder, wNS, "footnote"); err != nil {
+			return nil, err
+		}
+		if err := parseBlocks(decoder, "footnote", &footnote.Blocks, context); err != nil {
+			return nil, err
 		}
 		result[note.ID] = footnote
 	}
@@ -155,7 +181,11 @@ func readRelationships(reader *zip.Reader) (map[string]imageResource, map[string
 				root = "ftr"
 				destination = footers
 			}
-			value, parseErr := parseHeaderFooter(data, root, ir.HeaderFooterDefault)
+			partImages, partLinks, resourceErr := readPartResources(reader, target)
+			if resourceErr != nil {
+				return nil, nil, nil, nil, resourceErr
+			}
+			value, parseErr := parseHeaderFooter(data, root, ir.HeaderFooterDefault, &parseCtx{images: partImages, hyperlinks: partLinks})
 			if parseErr != nil {
 				return nil, nil, nil, nil, parseErr
 			}
@@ -247,4 +277,38 @@ func readEntry(r *zip.Reader, name string) ([]byte, error) {
 		return nil, ErrMissingDocumentXML
 	}
 	return nil, fmt.Errorf("ooxml: %s missing", name)
+}
+
+func readPartResources(reader *zip.Reader, part string) (map[string]imageResource, map[string]string, error) {
+	images := make(map[string]imageResource)
+	links := make(map[string]string)
+	content, err := readOptionalEntry(reader, path.Join(path.Dir(part), "_rels", path.Base(part)+".rels"))
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(content) == 0 {
+		return images, links, nil
+	}
+	var source xmlRelationships
+	if err := xml.Unmarshal(content, &source); err != nil {
+		return nil, nil, err
+	}
+	for _, relationship := range source.Relationships {
+		if strings.HasSuffix(relationship.Type, "/hyperlink") && relationship.TargetMode == "External" {
+			links[relationship.ID] = relationship.Target
+			continue
+		}
+		if !strings.HasSuffix(relationship.Type, "/image") || relationship.TargetMode == "External" {
+			continue
+		}
+		target := path.Clean(path.Join(path.Dir(part), relationship.Target))
+		data, err := readOptionalEntry(reader, target)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(data) > 0 {
+			images[relationship.ID] = imageResource{Data: data, Format: imageFormat(target)}
+		}
+	}
+	return images, links, nil
 }

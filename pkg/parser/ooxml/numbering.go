@@ -18,8 +18,14 @@ type xmlAbstractNumbering struct {
 }
 
 type xmlConcreteNumbering struct {
-	ID       string      `xml:"numId,attr"`
-	Abstract *xmlValAttr `xml:"abstractNumId"`
+	ID        string                 `xml:"numId,attr"`
+	Abstract  *xmlValAttr            `xml:"abstractNumId"`
+	Overrides []xmlNumberingOverride `xml:"lvlOverride"`
+}
+
+type xmlNumberingOverride struct {
+	Level int         `xml:"ilvl,attr"`
+	Start *xmlValAttr `xml:"startOverride"`
 }
 
 type xmlNumberingLevel struct {
@@ -75,6 +81,20 @@ func parseNumbering(content []byte, document *ir.Document) error {
 			continue
 		}
 		levels := append([]ir.NumberingLevel(nil), abstract[concrete.Abstract.Val]...)
+		for _, override := range concrete.Overrides {
+			if override.Start == nil {
+				continue
+			}
+			start, err := strconv.Atoi(override.Start.Val)
+			if err != nil {
+				continue
+			}
+			for i := range levels {
+				if levels[i].Level == override.Level {
+					levels[i].Start = start
+				}
+			}
+		}
 		document.Styles.Numbering = append(document.Styles.Numbering, ir.NumberingDef{ID: concrete.ID, Levels: levels})
 	}
 	return nil

@@ -7,8 +7,8 @@ import (
 
 // blockEnvelope wraps a Block for JSON serialization with type discrimination.
 type blockEnvelope struct {
-	Type      string          `json:"type"`
-	Data      json.RawMessage `json:"data"`
+	Type string          `json:"type"`
+	Data json.RawMessage `json:"data"`
 }
 
 // MarshalBlockSlice serializes a slice of Blocks to JSON.
@@ -53,6 +53,8 @@ func blockTypeName(b Block) (string, error) {
 		return "table", nil
 	case *Image:
 		return "image", nil
+	case *Shape:
+		return "shape", nil
 	case *Bookmark:
 		return "bookmark", nil
 	default:
@@ -80,6 +82,12 @@ func unmarshalBlock(env blockEnvelope) (Block, error) {
 			return nil, err
 		}
 		return &img, nil
+	case "shape":
+		var shape Shape
+		if err := json.Unmarshal(env.Data, &shape); err != nil {
+			return nil, err
+		}
+		return &shape, nil
 	case "bookmark":
 		var b Bookmark
 		if err := json.Unmarshal(env.Data, &b); err != nil {
@@ -93,16 +101,19 @@ func unmarshalBlock(env blockEnvelope) (Block, error) {
 
 // sectionJSON is the JSON representation of a Section with typed blocks.
 type sectionJSON struct {
-	Properties PageProperties  `json:"properties"`
-	Columns    []Column        `json:"columns"`
+	Break      string            `json:"break,omitempty"`
+	Headers    []*HeaderFooter   `json:"headers,omitempty"`
+	Footers    []*HeaderFooter   `json:"footers,omitempty"`
+	Properties PageProperties    `json:"properties"`
+	Columns    []Column          `json:"columns"`
 	Header     *headerFooterJSON `json:"header,omitempty"`
 	Footer     *headerFooterJSON `json:"footer,omitempty"`
-	Blocks     json.RawMessage `json:"blocks"`
+	Blocks     json.RawMessage   `json:"blocks"`
 }
 
 type headerFooterJSON struct {
 	Blocks json.RawMessage  `json:"blocks"`
-	Kind   HeaderFooterKind `json:"kind"`
+	Type   HeaderFooterType `json:"type"`
 }
 
 // MarshalJSON implements custom JSON marshaling for Section.
@@ -112,7 +123,7 @@ func (s Section) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 
-	sj := sectionJSON{
+	sj := sectionJSON{Break: s.Break, Headers: s.Headers, Footers: s.Footers,
 		Properties: s.Properties,
 		Columns:    s.Columns,
 		Blocks:     blocksData,
@@ -123,7 +134,7 @@ func (s Section) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		sj.Header = &headerFooterJSON{Blocks: hBlocks, Kind: s.Header.Kind}
+		sj.Header = &headerFooterJSON{Blocks: hBlocks, Type: s.Header.Type}
 	}
 
 	if s.Footer != nil {
@@ -131,7 +142,7 @@ func (s Section) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		sj.Footer = &headerFooterJSON{Blocks: fBlocks, Kind: s.Footer.Kind}
+		sj.Footer = &headerFooterJSON{Blocks: fBlocks, Type: s.Footer.Type}
 	}
 
 	return json.Marshal(sj)
@@ -144,7 +155,10 @@ func (s *Section) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
+	s.Headers = sj.Headers
+	s.Footers = sj.Footers
 	s.Properties = sj.Properties
+	s.Break = sj.Break
 	s.Columns = sj.Columns
 
 	if sj.Blocks != nil {
@@ -160,7 +174,7 @@ func (s *Section) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return err
 		}
-		s.Header = &HeaderFooter{Blocks: hBlocks, Kind: sj.Header.Kind}
+		s.Header = &HeaderFooter{Blocks: hBlocks, Type: sj.Header.Type}
 	}
 
 	if sj.Footer != nil {
@@ -168,7 +182,7 @@ func (s *Section) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return err
 		}
-		s.Footer = &HeaderFooter{Blocks: fBlocks, Kind: sj.Footer.Kind}
+		s.Footer = &HeaderFooter{Blocks: fBlocks, Type: sj.Footer.Type}
 	}
 
 	return nil
@@ -230,6 +244,7 @@ func (c *TableCell) UnmarshalJSON(data []byte) error {
 
 // footnoteJSON is the JSON representation of a Footnote with typed blocks.
 type footnoteJSON struct {
+	Offset *int            `json:"offset,omitempty"`
 	ID     string          `json:"id"`
 	Blocks json.RawMessage `json:"blocks"`
 }
@@ -240,7 +255,7 @@ func (f Footnote) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(footnoteJSON{ID: f.ID, Blocks: blocksData})
+	return json.Marshal(footnoteJSON{ID: f.ID, Blocks: blocksData, Offset: f.Offset})
 }
 
 // UnmarshalJSON implements custom JSON unmarshaling for Footnote.
@@ -250,6 +265,7 @@ func (f *Footnote) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	f.ID = fj.ID
+	f.Offset = fj.Offset
 	if fj.Blocks != nil {
 		blocks, err := UnmarshalBlockSlice(fj.Blocks)
 		if err != nil {
@@ -257,5 +273,26 @@ func (f *Footnote) UnmarshalJSON(data []byte) error {
 		}
 		f.Blocks = blocks
 	}
+	return nil
+}
+
+func (value HeaderFooter) MarshalJSON() ([]byte, error) {
+	blocks, err := MarshalBlockSlice(value.Blocks)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(headerFooterJSON{Blocks: blocks, Type: value.Type})
+}
+func (value *HeaderFooter) UnmarshalJSON(data []byte) error {
+	var input headerFooterJSON
+	if err := json.Unmarshal(data, &input); err != nil {
+		return err
+	}
+	blocks, err := UnmarshalBlockSlice(input.Blocks)
+	if err != nil {
+		return err
+	}
+	value.Blocks = blocks
+	value.Type = input.Type
 	return nil
 }

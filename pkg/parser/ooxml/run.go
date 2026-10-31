@@ -2,6 +2,7 @@ package ooxml
 
 import (
 	"encoding/xml"
+	"github.com/lean-docs/lean/pkg/ir"
 	"unicode/utf16"
 )
 
@@ -20,13 +21,40 @@ func (run *xmlRun) UnmarshalXML(decoder *xml.Decoder, start xml.StartElement) er
 			}
 		case xml.StartElement:
 			switch element.Name.Local {
+			case "pict":
+				var picture xmlLegacyPicture
+				if err := decoder.DecodeElement(&picture, &element); err != nil {
+					return err
+				}
+				picture.Shapes = append(picture.Shapes, picture.Rectangles...)
+				run.Watermark, run.LegacyDrawing = picture.watermark()
+				if len(picture.Shapes) == 1 && picture.Shapes[0].ImageData != nil {
+					run.WatermarkImageID = picture.Shapes[0].ImageData.ID
+					run.WatermarkImageAlt = picture.Shapes[0].ImageData.Title
+				}
+			case "fldChar":
+				var marker struct {
+					Type   string `xml:"fldCharType,attr"`
+					Locked string `xml:"fldLock,attr"`
+					Dirty  string `xml:"dirty,attr"`
+				}
+				if err := decoder.DecodeElement(&marker, &element); err != nil {
+					return err
+				}
+				run.Field = &ir.FieldElement{Type: marker.Type, Locked: marker.Locked == "true" || marker.Locked == "1", Dirty: marker.Dirty == "true" || marker.Dirty == "1"}
+			case "instrText":
+				var instruction xmlText
+				if err := decoder.DecodeElement(&instruction, &element); err != nil {
+					return err
+				}
+				run.Field = &ir.FieldElement{Type: "instruction", Instruction: instruction.Value}
 			case "rPr":
 				var properties xmlRunProps
 				if err := decoder.DecodeElement(&properties, &element); err != nil {
 					return err
 				}
 				run.Props = &properties
-			case "t":
+			case "t", "delText":
 				var text xmlText
 				if err := decoder.DecodeElement(&text, &element); err != nil {
 					return err

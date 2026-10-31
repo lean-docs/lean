@@ -7,7 +7,6 @@ package ir
 
 import "time"
 
-// BlockType identifies the kind of block element.
 type BlockType int
 
 const (
@@ -117,11 +116,10 @@ const (
 	TabLeaderUnderscore
 )
 
-// HeaderFooterKind represents header/footer types.
-type HeaderFooterKind int
+type HeaderFooterType int
 
 const (
-	HeaderFooterDefault HeaderFooterKind = iota
+	HeaderFooterDefault HeaderFooterType = iota
 	HeaderFooterFirst
 	HeaderFooterEven
 )
@@ -197,12 +195,29 @@ type ThemeFonts struct {
 
 // Style represents a named style.
 type Style struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	BasedOn   string    `json:"based_on,omitempty"`
-	ParaAttrs ParaAttrs `json:"para_attrs"`
-	RunAttrs  RunAttrs  `json:"run_attrs"`
-	IsChar    bool      `json:"is_char"`
+	ID        string      `json:"id"`
+	Name      string      `json:"name"`
+	BasedOn   string      `json:"based_on,omitempty"`
+	ParaAttrs ParaAttrs   `json:"para_attrs"`
+	RunAttrs  RunAttrs    `json:"run_attrs"`
+	IsChar    bool        `json:"is_char"`
+	Table     *TableStyle `json:"table,omitempty"`
+}
+
+type TableStyle struct {
+	Borders        TableBorders              `json:"borders"`
+	Cell           TableCellStyle            `json:"cell"`
+	Conditions     map[string]TableCellStyle `json:"conditions,omitempty"`
+	RowBandSize    int                       `json:"row_band_size,omitempty"`
+	ColumnBandSize int                       `json:"column_band_size,omitempty"`
+}
+
+type TableCellStyle struct {
+	RunAttrs  RunAttrs    `json:"run_attrs"`
+	ParaAttrs ParaAttrs   `json:"para_attrs"`
+	Borders   CellBorders `json:"borders"`
+	Shading   Color       `json:"shading"`
+	Padding   Padding     `json:"padding"`
 }
 
 // Section represents a document section.
@@ -241,7 +256,7 @@ type PageProperties struct {
 // HeaderFooter represents header or footer content.
 type HeaderFooter struct {
 	Blocks []Block          `json:"blocks"`
-	Kind   HeaderFooterKind `json:"kind"`
+	Type   HeaderFooterType `json:"type"`
 }
 
 // Block is the interface for block-level elements.
@@ -289,6 +304,7 @@ type ParaBorders struct {
 
 // Border represents a single border edge.
 type Border struct {
+	Space float64 `json:"space,omitempty"`
 	Style string  `json:"style,omitempty"`
 	Width float64 `json:"width,omitempty"`
 	Color Color   `json:"color"`
@@ -296,27 +312,68 @@ type Border struct {
 
 // Run is an inline text segment with formatting.
 type Run struct {
-	Text      string     `json:"text"`
-	Attrs     RunAttrs   `json:"attrs"`
-	Hyperlink *Hyperlink `json:"hyperlink,omitempty"`
-	Break     BreakType  `json:"break,omitempty"`
+	Change        *Change       `json:"change,omitempty"`
+	Watermark     *Watermark    `json:"watermark,omitempty"`
+	LegacyDrawing bool          `json:"legacy_drawing,omitempty"`
+	Text          string        `json:"text"`
+	Style         string        `json:"style,omitempty"`
+	Field         *FieldElement `json:"field,omitempty"`
+	Attrs         RunAttrs      `json:"attrs"`
+	Hyperlink     *Hyperlink    `json:"hyperlink,omitempty"`
+	Break         BreakType     `json:"break,omitempty"`
+}
+
+type Change struct {
+	Previous      *RunAttrs `json:"previous,omitempty"`
+	PreviousStyle string    `json:"previous_style,omitempty"`
+	ID            int       `json:"id"`
+	Type          string    `json:"type"`
+	Author        string    `json:"author"`
+	Date          string    `json:"date"`
+}
+
+type Watermark struct {
+	Image              *Image  `json:"image,omitempty"`
+	Text               string  `json:"text"`
+	FontName           string  `json:"font_name"`
+	Width              float64 `json:"width"`
+	Height             float64 `json:"height"`
+	Rotation           float64 `json:"rotation"`
+	Color              Color   `json:"color"`
+	Opacity            float64 `json:"opacity"`
+	HorizontalAlign    string  `json:"horizontal_align"`
+	VerticalAlign      string  `json:"vertical_align"`
+	HorizontalRelative string  `json:"horizontal_relative"`
+	VerticalRelative   string  `json:"vertical_relative"`
+	Left               float64 `json:"left"`
+	Top                float64 `json:"top"`
+}
+
+type FieldElement struct {
+	Type        string `json:"type"`
+	Instruction string `json:"instruction,omitempty"`
+	Locked      bool   `json:"locked,omitempty"`
+	Dirty       bool   `json:"dirty,omitempty"`
 }
 
 // RunAttrs holds character formatting attributes.
 type RunAttrs struct {
-	Bold      bool           `json:"bold,omitempty"`
-	Italic    bool           `json:"italic,omitempty"`
-	Underline UnderlineStyle `json:"underline,omitempty"`
-	Strike    bool           `json:"strike,omitempty"`
-	SmallCaps bool           `json:"small_caps,omitempty"`
-	AllCaps   bool           `json:"all_caps,omitempty"`
-	FontSize  float64        `json:"font_size,omitempty"`
-	FontName  string         `json:"font_name,omitempty"`
-	Color     Color          `json:"color"`
-	Highlight Color          `json:"highlight"`
-	Baseline  BaselineShift  `json:"baseline,omitempty"`
-	Tracking  float64        `json:"tracking,omitempty"`
-	Language  string         `json:"language,omitempty"`
+	Bold              bool           `json:"bold,omitempty"`
+	Italic            bool           `json:"italic,omitempty"`
+	Underline         UnderlineStyle `json:"underline,omitempty"`
+	Strike            bool           `json:"strike,omitempty"`
+	SmallCaps         bool           `json:"small_caps,omitempty"`
+	AllCaps           bool           `json:"all_caps,omitempty"`
+	FontSize          float64        `json:"font_size,omitempty"`
+	FontName          string         `json:"font_name,omitempty"`
+	Color             Color          `json:"color"`
+	Highlight         Color          `json:"highlight"`
+	Shading           Color          `json:"shading"`
+	ShadingPattern    string         `json:"shading_pattern,omitempty"`
+	ShadingForeground Color          `json:"shading_foreground"`
+	Baseline          BaselineShift  `json:"baseline,omitempty"`
+	Tracking          float64        `json:"tracking,omitempty"`
+	Language          string         `json:"language,omitempty"`
 
 	explicitZero uint16
 }
@@ -391,6 +448,7 @@ type Table struct {
 	Borders      TableBorders `json:"borders"`
 	Shading      Color        `json:"shading"`
 	Style        string       `json:"style,omitempty"`
+	Look         *uint16      `json:"look,omitempty"`
 }
 
 func (t *Table) BlockType() BlockType { return BlockTable }
@@ -408,6 +466,7 @@ type TableBorders struct {
 
 // TableRow represents a row in a table.
 type TableRow struct {
+	Change   *Change     `json:"change,omitempty"`
 	Cells    []TableCell `json:"cells"`
 	IsHeader bool        `json:"is_header,omitempty"`
 	Height   *float64    `json:"height,omitempty"`

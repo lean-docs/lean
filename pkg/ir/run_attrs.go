@@ -190,6 +190,9 @@ func (base RunAttrs) Overlay(override RunAttrs) RunAttrs {
 	if override.Highlight != (Color{}) {
 		base.Highlight = override.Highlight
 	}
+	if override.ShadingPattern != "" || override.Shading != (Color{}) {
+		base.Shading, base.ShadingPattern, base.ShadingForeground = override.Shading, override.ShadingPattern, override.ShadingForeground
+	}
 	if override.BaselineSpecified() {
 		base.SetBaseline(override.Baseline)
 	}

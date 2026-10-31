@@ -16,7 +16,7 @@ func TestDocumentCommandsEditCanonicalContentAtomically(t *testing.T) {
 	var plain ir.RunAttrs
 	plain.SetBold(false)
 	plain.SetColor(ir.Color{})
-	header := &ir.HeaderFooter{Kind: ir.HeaderFooterDefault, Blocks: []ir.Block{editingParagraph("header", "Header")}}
+	header := &ir.HeaderFooter{Type: ir.HeaderFooterDefault, Blocks: []ir.Block{editingParagraph("header", "Header")}}
 	edited, err := lean.ApplyDOCXCommands(document, []lean.DocumentCommand{
 		{ID: "text.replace", Block: "intro", Start: 9, End: 14, Text: "document"},
 		{ID: "text.format", Block: "intro", Start: 0, End: 5, Run: &plain},

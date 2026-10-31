@@ -273,34 +273,76 @@ func hasParagraphProperties(attrs ir.ParaAttrs) bool {
 }
 
 func writeRun(output *strings.Builder, run ir.Run, state *packageState) {
+	if run.Change != nil && run.Change.Type != "format" {
+		element := "ins"
+		if run.Change.Type == "delete" {
+			element = "del"
+		}
+		output.WriteString(`<w:` + element + ` w:id="` + strconv.Itoa(run.Change.ID) + `" w:author="` + escape(run.Change.Author) + `" w:date="` + escape(run.Change.Date) + `">`)
+		defer output.WriteString(`</w:` + element + `>`)
+	}
+
 	if run.Hyperlink != nil {
 		if run.Hyperlink.URL != "" && state != nil {
 			if id := state.hyperlinkIDs[run.Hyperlink.URL]; id > 0 {
 				output.WriteString(`<w:hyperlink r:id="rIdHyperlink` + strconv.Itoa(id) + `">`)
-				writeRunContent(output, run)
+				writeRunContent(output, run, state)
 				output.WriteString(`</w:hyperlink>`)
 				return
 			}
 		} else if run.Hyperlink.Bookmark != "" {
 			output.WriteString(`<w:hyperlink w:anchor="` + escape(run.Hyperlink.Bookmark) + `">`)
-			writeRunContent(output, run)
+			writeRunContent(output, run, state)
 			output.WriteString(`</w:hyperlink>`)
 			return
 		}
 	}
-	writeRunContent(output, run)
+	writeRunContent(output, run, state)
 }
 
-func writeRunContent(output *strings.Builder, run ir.Run) {
+func writeRunContent(output *strings.Builder, run ir.Run, states ...*packageState) {
+	var state *packageState
+	if len(states) > 0 {
+		state = states[0]
+	}
 	output.WriteString("<w:r>")
-	writeRunProperties(output, run.Attrs)
+	if run.Change != nil && run.Change.Type == "format" && run.Change.Previous != nil {
+		var current, previous strings.Builder
+		writeRunProperties(&current, run.Attrs, run.Style)
+		writeRunProperties(&previous, *run.Change.Previous, run.Change.PreviousStyle)
+		output.WriteString(strings.TrimSuffix(current.String(), "</w:rPr>"))
+		output.WriteString(`<w:rPrChange w:id="` + strconv.Itoa(run.Change.ID) + `" w:author="` + escape(run.Change.Author) + `" w:date="` + escape(run.Change.Date) + `">` + previous.String() + `</w:rPrChange></w:rPr>`)
+	} else {
+		writeRunProperties(output, run.Attrs, run.Style)
+	}
+	if run.Watermark != nil {
+		writeWatermark(output, run.Watermark, state)
+	}
+	if run.Field != nil {
+		if run.Field.Type == "instruction" {
+			output.WriteString(`<w:instrText xml:space="preserve">` + escape(run.Field.Instruction) + `</w:instrText>`)
+		} else {
+			output.WriteString(`<w:fldChar w:fldCharType="` + escape(run.Field.Type) + `"`)
+			if run.Field.Locked {
+				output.WriteString(` w:fldLock="1"`)
+			}
+			if run.Field.Dirty {
+				output.WriteString(` w:dirty="1"`)
+			}
+			output.WriteString(`/>`)
+		}
+	}
 	if run.Text != "" {
 		for index, text := range strings.Split(run.Text, "\t") {
 			if index > 0 {
 				output.WriteString("<w:tab/>")
 			}
 			if text != "" {
-				output.WriteString(`<w:t xml:space="preserve">` + escape(text) + `</w:t>`)
+				element := "t"
+				if run.Change != nil && run.Change.Type == "delete" {
+					element = "delText"
+				}
+				output.WriteString(`<w:` + element + ` xml:space="preserve">` + escape(text) + `</w:` + element + `>`)
 			}
 		}
 	}
@@ -310,11 +352,18 @@ func writeRunContent(output *strings.Builder, run ir.Run) {
 	output.WriteString("</w:r>")
 }
 
-func writeRunProperties(output *strings.Builder, attrs ir.RunAttrs) {
-	if attrs == (ir.RunAttrs{}) {
+func writeRunProperties(output *strings.Builder, attrs ir.RunAttrs, styles ...string) {
+	style := ""
+	if len(styles) > 0 {
+		style = styles[0]
+	}
+	if attrs == (ir.RunAttrs{}) && style == "" {
 		return
 	}
 	output.WriteString("<w:rPr>")
+	if style != "" {
+		output.WriteString(`<w:rStyle w:val="` + escape(style) + `"/>`)
+	}
 	if attrs.BoldSpecified() {
 		if attrs.Bold {
 			output.WriteString("<w:b/>")
@@ -368,6 +417,21 @@ func writeRunProperties(output *strings.Builder, attrs ir.RunAttrs) {
 	if attrs.Highlight != (ir.Color{}) {
 		output.WriteString(`<w:highlight w:val="` + highlight(attrs.Highlight) + `"/>`)
 	}
+	if attrs.ShadingPattern != "" || attrs.Shading != (ir.Color{}) {
+		pattern := attrs.ShadingPattern
+		if pattern == "" {
+			pattern = "clear"
+		}
+		fill := color(attrs.Shading)
+		if attrs.Shading.None {
+			fill = "auto"
+		}
+		foreground := color(attrs.ShadingForeground)
+		if attrs.ShadingForeground.None {
+			foreground = "auto"
+		}
+		output.WriteString(`<w:shd w:val="` + escape(pattern) + `" w:fill="` + fill + `" w:color="` + foreground + `"/>`)
+	}
 	if attrs.TrackingSpecified() {
 		output.WriteString(`<w:spacing w:val="` + strconv.FormatInt(int64(attrs.Tracking*20), 10) + `"/>`)
 	}
@@ -379,10 +443,13 @@ func writeRunProperties(output *strings.Builder, attrs ir.RunAttrs) {
 
 func writeTable(output *strings.Builder, table *ir.Table, imageIndex *int, state *packageState) {
 	output.WriteString("<w:tbl>")
-	if table.Style != "" || table.Align != ir.AlignLeft || table.Borders != (ir.TableBorders{}) || table.Shading != (ir.Color{}) {
+	if table.Style != "" || table.Look != nil || table.Align != ir.AlignLeft || table.Borders != (ir.TableBorders{}) || table.Shading != (ir.Color{}) {
 		output.WriteString("<w:tblPr>")
 		if table.Style != "" {
 			output.WriteString(`<w:tblStyle w:val="` + escape(table.Style) + `"/>`)
+		}
+		if table.Look != nil {
+			output.WriteString(`<w:tblLook w:val="` + fmt.Sprintf("%04X", *table.Look) + `"/>`)
 		}
 		if table.Align != ir.AlignLeft {
 			output.WriteString(`<w:jc w:val="` + alignment(table.Align) + `"/>`)
@@ -402,8 +469,15 @@ func writeTable(output *strings.Builder, table *ir.Table, imageIndex *int, state
 	}
 	for _, row := range table.Rows {
 		output.WriteString("<w:tr>")
-		if row.IsHeader || row.Height != nil {
+		if row.IsHeader || row.Height != nil || row.Change != nil {
 			output.WriteString("<w:trPr>")
+			if change := row.Change; change != nil {
+				element := "ins"
+				if change.Type == "delete" {
+					element = "del"
+				}
+				output.WriteString(`<w:` + element + ` w:id="` + strconv.Itoa(change.ID) + `" w:author="` + escape(change.Author) + `" w:date="` + escape(change.Date) + `"/>`)
+			}
 			if row.IsHeader {
 				output.WriteString("<w:tblHeader/>")
 			}
@@ -484,7 +558,7 @@ func writeSectionProperties(output *strings.Builder, section ir.Section, referen
 		differentFirst = *properties.DifferentFirstPage
 	} else {
 		for _, value := range append(append([]*ir.HeaderFooter{section.Header, section.Footer}, section.Headers...), section.Footers...) {
-			if value != nil && value.Kind == ir.HeaderFooterFirst {
+			if value != nil && value.Type == ir.HeaderFooterFirst {
 				differentFirst = true
 				break
 			}
@@ -506,7 +580,7 @@ func (state *packageState) contentTypes() string {
 		content += `<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>`
 	}
 	for _, part := range state.auxiliary {
-		content += `<Override PartName="/word/` + part.filename + `" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.` + part.kind + `+xml"/>`
+		content += `<Override PartName="/word/` + part.filename + `" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.` + part.partType + `+xml"/>`
 	}
 	if state.hasEvenVariant() {
 		content += `<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>`
@@ -530,7 +604,7 @@ func (state *packageState) documentRelationships() string {
 		content += `<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`
 	}
 	for _, part := range state.auxiliary {
-		content += `<Relationship Id="` + part.relationship + `" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/` + part.kind + `" Target="` + part.filename + `"/>`
+		content += `<Relationship Id="` + part.relationship + `" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/` + part.partType + `" Target="` + part.filename + `"/>`
 	}
 	if state.hasEvenVariant() {
 		content += `<Relationship Id="rIdSettings" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>`
@@ -591,11 +665,14 @@ func stylesXML(sheet ir.StyleSheet) string {
 	slices.Sort(ids)
 	for _, id := range ids {
 		style := sheet.Named[id]
-		kind := "paragraph"
+		styleType := "paragraph"
 		if style.IsChar {
-			kind = "character"
+			styleType = "character"
 		}
-		content.WriteString(`<w:style w:type="` + kind + `" w:styleId="` + escape(style.ID) + `">`)
+		if style.Table != nil {
+			styleType = "table"
+		}
+		content.WriteString(`<w:style w:type="` + styleType + `" w:styleId="` + escape(style.ID) + `">`)
 		if style.Name != "" {
 			content.WriteString(`<w:name w:val="` + escape(style.Name) + `"/>`)
 		}
@@ -608,6 +685,9 @@ func stylesXML(sheet ir.StyleSheet) string {
 		}
 		writeParagraphProperties(&content, &ir.Paragraph{Para: properties})
 		writeRunProperties(&content, style.RunAttrs)
+		if style.Table != nil {
+			writeTableStyle(&content, style.Table)
+		}
 		content.WriteString("</w:style>")
 	}
 	return xmlDeclaration + `<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` + content.String() + `</w:styles>`
@@ -781,6 +861,9 @@ func verticalAlignment(value ir.VAlignment) string {
 	return "top"
 }
 func highlight(value ir.Color) string {
+	if value.None {
+		return "none"
+	}
 	colors := map[ir.Color]string{
 		{R: 255, G: 255, B: 0}:   "yellow",
 		{R: 0, G: 255, B: 0}:     "green",
@@ -851,7 +934,7 @@ func writeBorder(output *strings.Builder, edge string, border ir.Border) {
 	if width == 0 {
 		width = 4
 	}
-	output.WriteString(`<w:` + edge + ` w:val="` + escape(style) + `" w:sz="` + strconv.FormatFloat(width, 'f', -1, 64) + `" w:color="` + color(border.Color) + `"/>`)
+	output.WriteString(`<w:` + edge + ` w:val="` + escape(style) + `" w:sz="` + strconv.FormatFloat(width, 'f', -1, 64) + `" w:space="` + strconv.FormatFloat(border.Space, 'f', -1, 64) + `" w:color="` + color(border.Color) + `"/>`)
 }
 func writeCellPadding(output *strings.Builder, padding ir.Padding) {
 	if padding == (ir.Padding{}) {

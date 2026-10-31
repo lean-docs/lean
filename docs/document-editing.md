@@ -56,4 +56,4 @@ Formatting setters distinguish inherited values from explicit off, zero or black
 
 Bookmark and footnote anchors follow text replacements and paragraph splits and joins. Footnote offsets are optional; an omitted offset places the reference at the paragraph end. Existing bookmark ranges must have valid paragraph anchors and cannot split a supplementary character.
 
-Fields, tracked changes, character-style references, arbitrary table styles and row spans still require additional preservation support. Applications must inspect the fidelity report rather than infer editability from a successful parse.
+Fields, character-style references, named table styles, watermarks, and supported tracked revisions are preserved. See [Tracked document changes](tracked-changes.md) for the supported revision subset. Row spans and unsupported drawing or revision structures still require additional preservation support. Applications must inspect the fidelity report rather than infer editability from a successful parse.

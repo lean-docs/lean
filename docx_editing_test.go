@@ -111,8 +111,8 @@ func TestEditingListStartsAndRestartProduceValidOOXML(t *testing.T) {
 func TestEditingSectionsKeepIndependentHeadersFootersAndColumns(t *testing.T) {
 	document := ir.NewDocument()
 	properties := document.Sections[0].Properties
-	header := func(kind ir.HeaderFooterKind, text string) *ir.HeaderFooter {
-		return &ir.HeaderFooter{Kind: kind, Blocks: []ir.Block{editingParagraph(text, text)}}
+	header := func(kind ir.HeaderFooterType, text string) *ir.HeaderFooter {
+		return &ir.HeaderFooter{Type: kind, Blocks: []ir.Block{editingParagraph(text, text)}}
 	}
 	document.Sections = []ir.Section{
 		{Properties: properties, Blocks: []ir.Block{editingParagraph("first", "First section")}, Header: header(ir.HeaderFooterDefault, "First header"), Headers: []*ir.HeaderFooter{header(ir.HeaderFooterFirst, "Title header"), header(ir.HeaderFooterEven, "Even header")}, Footer: header(ir.HeaderFooterDefault, "First footer"), Columns: []ir.Column{{Width: 216, Spacing: 36}, {Width: 216}}},

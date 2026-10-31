@@ -534,25 +534,25 @@ func TestIRFootnote(t *testing.T) {
 func TestIRHeaderFooter(t *testing.T) {
 	doc := ir.NewDocument()
 	doc.Sections[0].Header = &ir.HeaderFooter{
-		Kind: ir.HeaderFooterDefault,
+		Type: ir.HeaderFooterDefault,
 		Blocks: []ir.Block{
 			&ir.Paragraph{ID: "h1", Runs: []ir.Run{{Text: "Header text"}}},
 		},
 	}
 	doc.Sections[0].Footer = &ir.HeaderFooter{
-		Kind: ir.HeaderFooterFirst,
+		Type: ir.HeaderFooterFirst,
 		Blocks: []ir.Block{
 			&ir.Paragraph{ID: "f1", Runs: []ir.Run{{Text: "Footer text"}}},
 		},
 	}
 	restored := roundTrip(t, doc)
 	require.NotNil(t, restored.Sections[0].Header)
-	assert.Equal(t, ir.HeaderFooterDefault, restored.Sections[0].Header.Kind)
+	assert.Equal(t, ir.HeaderFooterDefault, restored.Sections[0].Header.Type)
 	hp := restored.Sections[0].Header.Blocks[0].(*ir.Paragraph)
 	assert.Equal(t, "Header text", hp.Runs[0].Text)
 
 	require.NotNil(t, restored.Sections[0].Footer)
-	assert.Equal(t, ir.HeaderFooterFirst, restored.Sections[0].Footer.Kind)
+	assert.Equal(t, ir.HeaderFooterFirst, restored.Sections[0].Footer.Type)
 	fp := restored.Sections[0].Footer.Blocks[0].(*ir.Paragraph)
 	assert.Equal(t, "Footer text", fp.Runs[0].Text)
 }

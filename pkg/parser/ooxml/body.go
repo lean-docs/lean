@@ -51,6 +51,24 @@ func (paragraph *xmlParagraph) UnmarshalXML(decoder *xml.Decoder, start xml.Star
 					return err
 				}
 				paragraph.Runs = append(paragraph.Runs, run)
+			case "ins", "del":
+				var change struct {
+					ID     int      `xml:"id,attr"`
+					Author string   `xml:"author,attr"`
+					Date   string   `xml:"date,attr"`
+					Runs   []xmlRun `xml:"r"`
+				}
+				if err := decoder.DecodeElement(&change, &element); err != nil {
+					return err
+				}
+				revisionType := "insert"
+				if element.Name.Local == "del" {
+					revisionType = "delete"
+				}
+				for _, run := range change.Runs {
+					run.Change = &ir.Change{ID: change.ID, Type: revisionType, Author: change.Author, Date: change.Date}
+					paragraph.Runs = append(paragraph.Runs, run)
+				}
 			case "hyperlink":
 				var hyperlink xmlHyperlink
 				if err := decoder.DecodeElement(&hyperlink, &element); err != nil {
@@ -61,6 +79,17 @@ func (paragraph *xmlParagraph) UnmarshalXML(decoder *xml.Decoder, start xml.Star
 					hyperlink.Runs[index].HyperlinkAnchor = hyperlink.Anchor
 				}
 				paragraph.Runs = append(paragraph.Runs, hyperlink.Runs...)
+			case "fldSimple":
+				var field struct {
+					Instruction string   `xml:"instr,attr"`
+					Runs        []xmlRun `xml:"r"`
+				}
+				if err := decoder.DecodeElement(&field, &element); err != nil {
+					return err
+				}
+				paragraph.Runs = append(paragraph.Runs, xmlRun{Field: &ir.FieldElement{Type: "begin"}}, xmlRun{Field: &ir.FieldElement{Type: "instruction", Instruction: field.Instruction}}, xmlRun{Field: &ir.FieldElement{Type: "separate"}})
+				paragraph.Runs = append(paragraph.Runs, field.Runs...)
+				paragraph.Runs = append(paragraph.Runs, xmlRun{Field: &ir.FieldElement{Type: "end"}})
 			case "bookmarkStart", "bookmarkEnd":
 				var bookmark xmlBookmark
 				if err := decoder.DecodeElement(&bookmark, &element); err != nil {
@@ -140,14 +169,20 @@ type xmlTab struct {
 }
 
 type xmlRun struct {
-	DrawingOffsets    []int        `xml:"-"`
-	Props             *xmlRunProps `xml:"rPr"`
-	Text              []xmlText    `xml:"t"`
-	Breaks            []xmlBreak   `xml:"br"`
-	Drawings          []xmlDrawing `xml:"drawing"`
-	FootnoteReference *xmlIDAttr   `xml:"footnoteReference"`
-	HyperlinkID       string       `xml:"-"`
-	HyperlinkAnchor   string       `xml:"-"`
+	Change            *ir.Change       `xml:"-"`
+	WatermarkImageID  string           `xml:"-"`
+	WatermarkImageAlt string           `xml:"-"`
+	Watermark         *ir.Watermark    `xml:"-"`
+	LegacyDrawing     bool             `xml:"-"`
+	Field             *ir.FieldElement `xml:"-"`
+	DrawingOffsets    []int            `xml:"-"`
+	Props             *xmlRunProps     `xml:"rPr"`
+	Text              []xmlText        `xml:"t"`
+	Breaks            []xmlBreak       `xml:"br"`
+	Drawings          []xmlDrawing     `xml:"drawing"`
+	FootnoteReference *xmlIDAttr       `xml:"footnoteReference"`
+	HyperlinkID       string           `xml:"-"`
+	HyperlinkAnchor   string           `xml:"-"`
 }
 
 type xmlDrawing struct {
@@ -252,20 +287,30 @@ type xmlText struct {
 	Value string `xml:",chardata"`
 }
 
+type xmlRunPropertiesChange struct {
+	ID     int          `xml:"id,attr"`
+	Author string       `xml:"author,attr"`
+	Date   string       `xml:"date,attr"`
+	Props  *xmlRunProps `xml:"rPr"`
+}
+
 type xmlRunProps struct {
-	Bold      *xmlToggle   `xml:"b"`
-	Italic    *xmlToggle   `xml:"i"`
-	Underline *xmlValAttr  `xml:"u"`
-	Strike    *xmlToggle   `xml:"strike"`
-	SmallCaps *xmlToggle   `xml:"smallCaps"`
-	AllCaps   *xmlToggle   `xml:"caps"`
-	Vert      *xmlValAttr  `xml:"vertAlign"`
-	Size      *xmlValAttr  `xml:"sz"`
-	Fonts     *xmlRunFonts `xml:"rFonts"`
-	Color     *xmlValAttr  `xml:"color"`
-	Highlight *xmlValAttr  `xml:"highlight"`
-	Spacing   *xmlValAttr  `xml:"spacing"`
-	Language  *xmlValAttr  `xml:"lang"`
+	Change    *xmlRunPropertiesChange `xml:"rPrChange"`
+	Shading   *xmlShading             `xml:"shd"`
+	Style     *xmlValAttr             `xml:"rStyle"`
+	Bold      *xmlToggle              `xml:"b"`
+	Italic    *xmlToggle              `xml:"i"`
+	Underline *xmlValAttr             `xml:"u"`
+	Strike    *xmlToggle              `xml:"strike"`
+	SmallCaps *xmlToggle              `xml:"smallCaps"`
+	AllCaps   *xmlToggle              `xml:"caps"`
+	Vert      *xmlValAttr             `xml:"vertAlign"`
+	Size      *xmlValAttr             `xml:"sz"`
+	Fonts     *xmlRunFonts            `xml:"rFonts"`
+	Color     *xmlValAttr             `xml:"color"`
+	Highlight *xmlValAttr             `xml:"highlight"`
+	Spacing   *xmlValAttr             `xml:"spacing"`
+	Language  *xmlValAttr             `xml:"lang"`
 }
 
 type xmlToggle struct {
@@ -295,10 +340,23 @@ type xmlTable struct {
 }
 
 type xmlTblProps struct {
-	Style   *xmlValAttr `xml:"tblStyle"`
-	Align   *xmlValAttr `xml:"jc"`
-	Borders *xmlBorders `xml:"tblBorders"`
-	Shading *xmlShading `xml:"shd"`
+	Look           *xmlTableLook `xml:"tblLook"`
+	RowBandSize    *xmlValAttr   `xml:"tblStyleRowBandSize"`
+	ColumnBandSize *xmlValAttr   `xml:"tblStyleColBandSize"`
+	Style          *xmlValAttr   `xml:"tblStyle"`
+	Align          *xmlValAttr   `xml:"jc"`
+	Borders        *xmlBorders   `xml:"tblBorders"`
+	Shading        *xmlShading   `xml:"shd"`
+}
+
+type xmlTableLook struct {
+	Value       string `xml:"val,attr"`
+	FirstRow    string `xml:"firstRow,attr"`
+	LastRow     string `xml:"lastRow,attr"`
+	FirstColumn string `xml:"firstColumn,attr"`
+	LastColumn  string `xml:"lastColumn,attr"`
+	NoHBand     string `xml:"noHBand,attr"`
+	NoVBand     string `xml:"noVBand,attr"`
 }
 
 type xmlTblGrid struct {
@@ -315,8 +373,10 @@ type xmlTableRow struct {
 }
 
 type xmlRowProps struct {
-	Header *xmlToggle  `xml:"tblHeader"`
-	Height *xmlValAttr `xml:"trHeight"`
+	Insert *xmlRunPropertiesChange `xml:"ins"`
+	Delete *xmlRunPropertiesChange `xml:"del"`
+	Header *xmlToggle              `xml:"tblHeader"`
+	Height *xmlValAttr             `xml:"trHeight"`
 }
 
 type xmlTableCell struct {
@@ -355,6 +415,7 @@ type xmlBorders struct {
 }
 
 type xmlBorder struct {
+	Space string `xml:"space,attr"`
 	Val   string `xml:"val,attr"`
 	Sz    string `xml:"sz,attr"` // eighths of a point
 	Color string `xml:"color,attr"`
@@ -649,7 +710,7 @@ func otherHeaderFooters(references []xmlSectionRef, parts map[string]*ir.HeaderF
 	var result []*ir.HeaderFooter
 	for _, reference := range references {
 		current := preferredHeaderFooter([]xmlSectionRef{reference}, parts)
-		if current != nil && (preferred == nil || current.Kind != preferred.Kind) {
+		if current != nil && (preferred == nil || current.Type != preferred.Type) {
 			result = append(result, current)
 		}
 	}
@@ -663,11 +724,11 @@ func preferredHeaderFooter(references []xmlSectionRef, parts map[string]*ir.Head
 				value := *parts[reference.ID]
 				switch preferred {
 				case "first":
-					value.Kind = ir.HeaderFooterFirst
+					value.Type = ir.HeaderFooterFirst
 				case "even":
-					value.Kind = ir.HeaderFooterEven
+					value.Type = ir.HeaderFooterEven
 				default:
-					value.Kind = ir.HeaderFooterDefault
+					value.Type = ir.HeaderFooterDefault
 				}
 				return &value
 			}
@@ -676,12 +737,12 @@ func preferredHeaderFooter(references []xmlSectionRef, parts map[string]*ir.Head
 	return nil
 }
 
-func parseHeaderFooter(content []byte, root string, kind ir.HeaderFooterKind, resources ...*parseCtx) (*ir.HeaderFooter, error) {
+func parseHeaderFooter(content []byte, root string, partType ir.HeaderFooterType, resources ...*parseCtx) (*ir.HeaderFooter, error) {
 	decoder := xml.NewDecoder(bytes.NewReader(content))
 	if err := advanceToNS(decoder, wNS, root); err != nil {
 		return nil, err
 	}
-	value := &ir.HeaderFooter{Kind: kind}
+	value := &ir.HeaderFooter{Type: partType}
 	context := &parseCtx{}
 	if len(resources) > 0 {
 		context = resources[0]
@@ -860,6 +921,16 @@ func drawingFloat(container *xmlDrawingContainer) ir.FloatMode {
 
 func convertRun(xr xmlRun, context *parseCtx) ir.Run {
 	var run ir.Run
+	run.Change = xr.Change
+	run.Field = xr.Field
+	run.Watermark, run.LegacyDrawing = xr.Watermark, xr.LegacyDrawing
+	if run.Watermark != nil && xr.WatermarkImageID != "" {
+		if image, ok := context.images[xr.WatermarkImageID]; ok {
+			run.Watermark.Image = &ir.Image{Data: image.Data, Format: image.Format, Width: run.Watermark.Width, Height: run.Watermark.Height, Alt: xr.WatermarkImageAlt}
+		} else {
+			run.LegacyDrawing = true
+		}
+	}
 	for _, t := range xr.Text {
 		run.Text += t.Value
 	}
@@ -868,6 +939,20 @@ func convertRun(xr xmlRun, context *parseCtx) ir.Run {
 	}
 	if xr.Props != nil {
 		applyRunProps(&run.Attrs, xr.Props)
+		if change := xr.Props.Change; change != nil {
+			previous := ir.RunAttrs{}
+			previousStyle := ""
+			if change.Props != nil {
+				applyRunProps(&previous, change.Props)
+				if change.Props.Style != nil {
+					previousStyle = change.Props.Style.Val
+				}
+			}
+			run.Change = &ir.Change{ID: change.ID, Type: "format", Author: change.Author, Date: change.Date, Previous: &previous, PreviousStyle: previousStyle}
+		}
+		if xr.Props.Style != nil {
+			run.Style = xr.Props.Style.Val
+		}
 	}
 	if xr.HyperlinkID != "" {
 		if target := context.hyperlinks[xr.HyperlinkID]; target != "" {
@@ -891,6 +976,21 @@ func toggleOn(t *xmlToggle) bool {
 }
 
 func applyRunProps(a *ir.RunAttrs, p *xmlRunProps) {
+	if p.Shading != nil {
+		a.ShadingForeground = ir.Color{None: true}
+		if color, ok := parseHexColor(p.Shading.Color); ok {
+			a.ShadingForeground = color
+		}
+		a.ShadingPattern = p.Shading.Val
+		if a.ShadingPattern == "" {
+			a.ShadingPattern = "clear"
+		}
+		if color, ok := parseHexColor(p.Shading.Fill); ok {
+			a.Shading = color
+		} else if p.Shading.Fill == "auto" {
+			a.Shading = ir.Color{None: true}
+		}
+	}
 	if p.Bold != nil {
 		a.SetBold(toggleOn(p.Bold))
 	}
@@ -934,6 +1034,9 @@ func applyRunProps(a *ir.RunAttrs, p *xmlRunProps) {
 	}
 	if p.Highlight != nil && p.Highlight.Val != "" {
 		a.Highlight = highlightFromName(p.Highlight.Val)
+		if p.Highlight.Val == "none" {
+			a.Highlight = ir.Color{None: true}
+		}
 	}
 	if p.Spacing != nil {
 		if twentieths, err := strconv.ParseFloat(p.Spacing.Val, 64); err == nil {
@@ -1017,6 +1120,12 @@ func convertTable(xt xmlTable, ctx *parseCtx) *ir.Table {
 	for _, xr := range xt.Rows {
 		row := ir.TableRow{}
 		if xr.Props != nil {
+			if change := xr.Props.Insert; change != nil {
+				row.Change = &ir.Change{ID: change.ID, Type: "insert", Author: change.Author, Date: change.Date}
+			}
+			if change := xr.Props.Delete; change != nil {
+				row.Change = &ir.Change{ID: change.ID, Type: "delete", Author: change.Author, Date: change.Date}
+			}
 			if toggleOn(xr.Props.Header) {
 				row.IsHeader = true
 			}
@@ -1102,6 +1211,24 @@ func cellGridSpan(c xmlTableCell) int {
 }
 
 func applyTableProps(t *ir.Table, p *xmlTblProps) {
+	if p.Look != nil {
+		parsed, _ := strconv.ParseUint(p.Look.Value, 16, 16)
+		value := uint16(parsed)
+		for _, option := range []struct {
+			value string
+			bit   uint16
+		}{{p.Look.FirstRow, 0x20}, {p.Look.LastRow, 0x40}, {p.Look.FirstColumn, 0x80}, {p.Look.LastColumn, 0x100}, {p.Look.NoHBand, 0x200}, {p.Look.NoVBand, 0x400}} {
+			if option.value == "" {
+				continue
+			}
+			if option.value == "1" || option.value == "true" || option.value == "on" {
+				value |= option.bit
+			} else {
+				value &^= option.bit
+			}
+		}
+		t.Look = &value
+	}
 	if p.Style != nil {
 		t.Style = p.Style.Val
 	}
@@ -1187,6 +1314,7 @@ func borderFrom(b *xmlBorder) ir.Border {
 		return ir.Border{}
 	}
 	out := ir.Border{Style: b.Val}
+	out.Space, _ = strconv.ParseFloat(b.Space, 64)
 	if b.Sz != "" {
 		if eighths, err := strconv.ParseFloat(b.Sz, 64); err == nil {
 			out.Width = eighths / 8.0 // sz in eighths of a point

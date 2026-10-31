@@ -21,12 +21,38 @@ type xmlRunDefault struct {
 }
 
 type xmlStyle struct {
+	Type       string                `xml:"type,attr"`
+	ID         string                `xml:"styleId,attr"`
+	Name       *xmlValAttr           `xml:"name"`
+	BasedOn    *xmlValAttr           `xml:"basedOn"`
+	Paragraph  *xmlParaProps         `xml:"pPr"`
+	Run        *xmlRunProps          `xml:"rPr"`
+	Table      *xmlTblProps          `xml:"tblPr"`
+	Cell       *xmlCellProps         `xml:"tcPr"`
+	Conditions []xmlTableStyleRegion `xml:"tblStylePr"`
+}
+
+type xmlTableStyleRegion struct {
 	Type      string        `xml:"type,attr"`
-	ID        string        `xml:"styleId,attr"`
-	Name      *xmlValAttr   `xml:"name"`
-	BasedOn   *xmlValAttr   `xml:"basedOn"`
-	Paragraph *xmlParaProps `xml:"pPr"`
 	Run       *xmlRunProps  `xml:"rPr"`
+	Paragraph *xmlParaProps `xml:"pPr"`
+	Cell      *xmlCellProps `xml:"tcPr"`
+}
+
+func tableStyleRegion(run *xmlRunProps, paragraph *xmlParaProps, cell *xmlCellProps) ir.TableCellStyle {
+	var value ir.TableCellStyle
+	if run != nil {
+		applyRunProps(&value.RunAttrs, run)
+	}
+	if paragraph != nil {
+		applyParaProps(&value.ParaAttrs, paragraph)
+	}
+	if cell != nil {
+		var target ir.TableCell
+		applyCellProps(&target, cell)
+		value.Borders, value.Shading, value.Padding = target.Borders, target.Shading, target.Padding
+	}
+	return value
 }
 
 func parseStyles(content []byte, document *ir.Document) error {
@@ -53,6 +79,23 @@ func parseStyles(content []byte, document *ir.Document) error {
 		}
 		if value.Run != nil {
 			applyRunProps(&style.RunAttrs, value.Run)
+		}
+		if value.Type == "table" {
+			style.Table = &ir.TableStyle{Cell: tableStyleRegion(nil, nil, value.Cell), Conditions: make(map[string]ir.TableCellStyle)}
+			if value.Table != nil {
+				var table ir.Table
+				applyTableProps(&table, value.Table)
+				style.Table.Borders = table.Borders
+				if value.Table.RowBandSize != nil {
+					style.Table.RowBandSize, _ = strconv.Atoi(value.Table.RowBandSize.Val)
+				}
+				if value.Table.ColumnBandSize != nil {
+					style.Table.ColumnBandSize, _ = strconv.Atoi(value.Table.ColumnBandSize.Val)
+				}
+			}
+			for _, region := range value.Conditions {
+				style.Table.Conditions[region.Type] = tableStyleRegion(region.Run, region.Paragraph, region.Cell)
+			}
 		}
 		document.Styles.Named[value.ID] = style
 	}

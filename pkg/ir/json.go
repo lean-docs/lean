@@ -113,7 +113,7 @@ type sectionJSON struct {
 
 type headerFooterJSON struct {
 	Blocks json.RawMessage  `json:"blocks"`
-	Kind   HeaderFooterKind `json:"kind"`
+	Type   HeaderFooterType `json:"type"`
 }
 
 // MarshalJSON implements custom JSON marshaling for Section.
@@ -134,7 +134,7 @@ func (s Section) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		sj.Header = &headerFooterJSON{Blocks: hBlocks, Kind: s.Header.Kind}
+		sj.Header = &headerFooterJSON{Blocks: hBlocks, Type: s.Header.Type}
 	}
 
 	if s.Footer != nil {
@@ -142,7 +142,7 @@ func (s Section) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		sj.Footer = &headerFooterJSON{Blocks: fBlocks, Kind: s.Footer.Kind}
+		sj.Footer = &headerFooterJSON{Blocks: fBlocks, Type: s.Footer.Type}
 	}
 
 	return json.Marshal(sj)
@@ -174,7 +174,7 @@ func (s *Section) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return err
 		}
-		s.Header = &HeaderFooter{Blocks: hBlocks, Kind: sj.Header.Kind}
+		s.Header = &HeaderFooter{Blocks: hBlocks, Type: sj.Header.Type}
 	}
 
 	if sj.Footer != nil {
@@ -182,7 +182,7 @@ func (s *Section) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return err
 		}
-		s.Footer = &HeaderFooter{Blocks: fBlocks, Kind: sj.Footer.Kind}
+		s.Footer = &HeaderFooter{Blocks: fBlocks, Type: sj.Footer.Type}
 	}
 
 	return nil
@@ -281,7 +281,7 @@ func (value HeaderFooter) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(headerFooterJSON{Blocks: blocks, Kind: value.Kind})
+	return json.Marshal(headerFooterJSON{Blocks: blocks, Type: value.Type})
 }
 func (value *HeaderFooter) UnmarshalJSON(data []byte) error {
 	var input headerFooterJSON
@@ -293,6 +293,6 @@ func (value *HeaderFooter) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	value.Blocks = blocks
-	value.Kind = input.Kind
+	value.Type = input.Type
 	return nil
 }

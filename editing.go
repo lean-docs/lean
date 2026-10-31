@@ -17,6 +17,9 @@ import (
 var ErrInvalidCommand = errors.New("lean: invalid document command")
 
 type DocumentCommand struct {
+	Change             *ir.Change          `json:"change,omitempty"`
+	ChangeID           *int                `json:"change_id,omitempty"`
+	Watermark          *ir.Watermark       `json:"watermark,omitempty"`
 	EvenAndOddHeaders  *bool               `json:"even_and_odd_headers,omitempty"`
 	DifferentFirstPage *bool               `json:"different_first_page,omitempty"`
 	Image              *ir.Image           `json:"image,omitempty"`
@@ -29,7 +32,7 @@ type DocumentCommand struct {
 	ID                 string              `json:"id"`
 	Section            int                 `json:"section,omitempty"`
 	Part               string              `json:"part,omitempty"`
-	Variant            ir.HeaderFooterKind `json:"variant,omitempty"`
+	Variant            ir.HeaderFooterType `json:"variant,omitempty"`
 	Block              string              `json:"block,omitempty"`
 	At                 int                 `json:"at,omitempty"`
 	Start              int                 `json:"start,omitempty"`
@@ -50,23 +53,28 @@ type DocumentCommand struct {
 }
 
 type DocumentCommandInfo struct {
-	ID         string `json:"id"`
-	Capability string `json:"capability"`
+	InputSchema map[string]any `json:"input_schema"`
+	ID          string         `json:"id"`
+	Capability  string         `json:"capability"`
 }
 
 func DOCXCommands() []DocumentCommandInfo {
-	return []DocumentCommandInfo{
-		{"text.replace", "text"}, {"text.format", "run-formatting"}, {"text.link", "hyperlinks"},
-		{"bookmark.set", "bookmarks"}, {"bookmark.remove", "bookmarks"},
-		{"footnote.set", "footnotes"}, {"footnote.remove", "footnotes"},
-		{"style.set", "paragraph-formatting"}, {"style.remove", "paragraph-formatting"},
-		{"paragraph.format", "paragraph-formatting"}, {"paragraph.style", "paragraph-formatting"}, {"paragraph.insert", "text"}, {"paragraph.delete", "text"}, {"paragraph.split", "text"}, {"paragraph.join", "text"},
-		{"list.set", "lists"}, {"list.remove", "lists"},
-		{"table.insert", "tables"}, {"table.delete", "tables"}, {"table.row.insert", "tables"}, {"table.row.delete", "tables"}, {"table.column.insert", "tables"}, {"table.column.delete", "tables"},
-		{"image.insert", "images"}, {"shape.insert", "shapes"}, {"drawing.layout", "drawing-anchors"}, {"drawing.delete", "drawing-anchors"},
-		{"page.layout", "page-layout"}, {"page.columns", "page-columns"}, {"section.insert", "sections"}, {"section.delete", "sections"}, {"section.break", "sections"},
-		{"header.options", "headers"}, {"header.set", "headers"}, {"header.remove", "headers"}, {"footer.set", "footers"}, {"footer.remove", "footers"},
+	commands := []DocumentCommandInfo{
+		{ID: "text.format.suggest", Capability: "tracked-changes"}, {ID: "text.suggest", Capability: "tracked-changes"}, {ID: "change.accept", Capability: "tracked-changes"}, {ID: "change.reject", Capability: "tracked-changes"}, {ID: "text.replace", Capability: "text"}, {ID: "text.format", Capability: "run-formatting"}, {ID: "text.link", Capability: "hyperlinks"},
+		{ID: "bookmark.set", Capability: "bookmarks"}, {ID: "bookmark.remove", Capability: "bookmarks"},
+		{ID: "footnote.set", Capability: "footnotes"}, {ID: "footnote.remove", Capability: "footnotes"},
+		{ID: "style.set", Capability: "paragraph-formatting"}, {ID: "style.remove", Capability: "paragraph-formatting"},
+		{ID: "paragraph.format", Capability: "paragraph-formatting"}, {ID: "paragraph.style", Capability: "paragraph-formatting"}, {ID: "paragraph.insert", Capability: "text"}, {ID: "paragraph.delete", Capability: "text"}, {ID: "paragraph.split", Capability: "text"}, {ID: "paragraph.join", Capability: "text"},
+		{ID: "list.set", Capability: "lists"}, {ID: "list.remove", Capability: "lists"},
+		{ID: "table.insert.suggest", Capability: "tracked-changes"}, {ID: "table.row.insert.suggest", Capability: "tracked-changes"}, {ID: "table.row.delete.suggest", Capability: "tracked-changes"}, {ID: "table.style", Capability: "table-styles"}, {ID: "table.insert", Capability: "tables"}, {ID: "table.delete", Capability: "tables"}, {ID: "table.row.insert", Capability: "tables"}, {ID: "table.row.delete", Capability: "tables"}, {ID: "table.column.insert", Capability: "tables"}, {ID: "table.column.delete", Capability: "tables"},
+		{ID: "image.insert", Capability: "images"}, {ID: "shape.insert", Capability: "shapes"}, {ID: "drawing.layout", Capability: "drawing-anchors"}, {ID: "drawing.delete", Capability: "drawing-anchors"},
+		{ID: "page.layout", Capability: "page-layout"}, {ID: "page.columns", Capability: "page-columns"}, {ID: "section.insert", Capability: "sections"}, {ID: "section.delete", Capability: "sections"}, {ID: "section.break", Capability: "sections"},
+		{ID: "watermark.set", Capability: "text-watermarks"}, {ID: "watermark.remove", Capability: "text-watermarks"}, {ID: "header.options", Capability: "headers"}, {ID: "header.set", Capability: "headers"}, {ID: "header.remove", Capability: "headers"}, {ID: "footer.set", Capability: "footers"}, {ID: "footer.remove", Capability: "footers"},
 	}
+	for index := range commands {
+		commands[index].InputSchema = DOCXCommandSchema(commands[index].ID)
+	}
+	return commands
 }
 
 func ApplyDOCXCommands(document *ir.Document, commands []DocumentCommand) (*ir.Document, error) {
@@ -115,7 +123,7 @@ func commandBlocks(document *ir.Document, command DocumentCommand) (*[]ir.Block,
 			values = append([]*ir.HeaderFooter{section.Footer}, section.Footers...)
 		}
 		for _, value := range values {
-			if value != nil && value.Kind == command.Variant {
+			if value != nil && value.Type == command.Variant {
 				return &value.Blocks, nil
 			}
 		}
@@ -153,7 +161,63 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 	if command.Section < 0 || command.Section >= len(document.Sections) {
 		return errors.New("section does not exist")
 	}
+	if command.ID == "change.accept" || command.ID == "change.reject" {
+		return resolveTextChange(document, command)
+	}
+	if command.ID == "table.insert.suggest" {
+		if command.Change == nil || command.Change.Author == "" {
+			return errors.New("tracked table insertion requires author and date")
+		}
+		direct := command
+		direct.ID = "table.insert"
+		if err := applyDOCXCommand(document, direct); err != nil {
+			return err
+		}
+		blocks, err := commandBlocks(document, direct)
+		if err != nil {
+			return err
+		}
+		table, ok := (*blocks)[command.At].(*ir.Table)
+		if !ok {
+			return errors.New("inserted table is unavailable")
+		}
+		id := nextTextChangeID(document)
+		for index := range table.Rows {
+			change := *command.Change
+			change.ID = id + index
+			change.Type = "insert"
+			table.Rows[index].Change = &change
+		}
+		return nil
+	}
 	section := &document.Sections[command.Section]
+	if command.ID == "section.delete" {
+		if hasPendingChanges(section.Blocks) {
+			return errors.New("resolve tracked changes before deleting the section")
+		}
+		parts := append([]*ir.HeaderFooter{section.Header, section.Footer}, section.Headers...)
+		parts = append(parts, section.Footers...)
+		for _, part := range parts {
+			if part != nil && hasPendingChanges(part.Blocks) {
+				return errors.New("resolve tracked changes before deleting the section")
+			}
+		}
+	}
+	if command.ID == "header.set" || command.ID == "header.remove" || command.ID == "footer.set" || command.ID == "footer.remove" {
+		parts := append([]*ir.HeaderFooter{section.Header}, section.Headers...)
+		if strings.HasPrefix(command.ID, "footer.") {
+			parts = append([]*ir.HeaderFooter{section.Footer}, section.Footers...)
+		}
+		targetType := command.Variant
+		if command.HeaderFooter != nil {
+			targetType = command.HeaderFooter.Type
+		}
+		for _, part := range parts {
+			if part != nil && part.Type == targetType && hasPendingChanges(part.Blocks) {
+				return errors.New("resolve tracked changes before replacing this header or footer")
+			}
+		}
+	}
 	switch command.ID {
 	case "header.options":
 		if command.EvenAndOddHeaders == nil && command.DifferentFirstPage == nil {
@@ -186,8 +250,15 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 			}
 			for _, blocks := range parts {
 				walkStructuralBlocks(blocks, func(block ir.Block) {
-					if p, ok := block.(*ir.Paragraph); ok && p.Style == command.Style {
-						used = true
+					if p, ok := block.(*ir.Paragraph); ok {
+						if p.Style == command.Style {
+							used = true
+						}
+						for _, run := range p.Runs {
+							if run.Style == command.Style || run.Change != nil && run.Change.PreviousStyle == command.Style {
+								used = true
+							}
+						}
 					}
 				})
 			}
@@ -259,29 +330,67 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 		}
 		document.Sections = slices.Delete(document.Sections, command.Section, command.Section+1)
 		return nil
+	case "watermark.set", "watermark.remove":
+		if command.ID == "watermark.set" && command.Watermark == nil {
+			return errors.New("watermark content is required")
+		}
+		parts := append([]*ir.HeaderFooter{section.Header}, section.Headers...)
+		if section.Header == nil && len(section.Headers) == 0 && command.ID == "watermark.set" {
+			section.Header = &ir.HeaderFooter{Type: ir.HeaderFooterDefault, Blocks: []ir.Block{newEditingParagraph("")}}
+			parts = []*ir.HeaderFooter{section.Header}
+		}
+		for _, part := range parts {
+			if part == nil {
+				continue
+			}
+			var first *ir.Paragraph
+			walkBlocksForEditing(part.Blocks, func(paragraph *ir.Paragraph) {
+				if first == nil {
+					first = paragraph
+				}
+				runs := paragraph.Runs[:0]
+				for _, run := range paragraph.Runs {
+					hadWatermark := run.Watermark != nil
+					run.Watermark = nil
+					if hadWatermark && run.Text == "" && run.Break == ir.BreakNone && run.Field == nil && run.Hyperlink == nil && run.Style == "" && run.Attrs == (ir.RunAttrs{}) {
+						continue
+					}
+					runs = append(runs, run)
+				}
+				paragraph.Runs = runs
+			})
+			if command.ID == "watermark.set" {
+				if first == nil {
+					first = newEditingParagraph("")
+					part.Blocks = append([]ir.Block{first}, part.Blocks...)
+				}
+				first.Runs = append([]ir.Run{{Watermark: command.Watermark}}, first.Runs...)
+			}
+		}
+		return nil
 	case "header.set", "footer.set", "header.remove", "footer.remove":
 		header := strings.HasPrefix(command.ID, "header")
 		primary, others := &section.Header, &section.Headers
 		if !header {
 			primary, others = &section.Footer, &section.Footers
 		}
-		kind := command.Variant
+		partType := command.Variant
 		value := command.HeaderFooter
 		if strings.HasSuffix(command.ID, ".set") {
 			if value == nil {
 				return errors.New("header or footer content is required")
 			}
-			kind = value.Kind
+			partType = value.Type
 		}
-		if kind < ir.HeaderFooterDefault || kind > ir.HeaderFooterEven {
+		if partType < ir.HeaderFooterDefault || partType > ir.HeaderFooterEven {
 			return errors.New("invalid header or footer variant")
 		}
-		if *primary != nil && (*primary).Kind == kind {
+		if *primary != nil && (*primary).Type == partType {
 			*primary = value
 			return nil
 		}
 		for index, current := range *others {
-			if current != nil && current.Kind == kind {
+			if current != nil && current.Type == partType {
 				if value == nil {
 					*others = slices.Delete(*others, index, index+1)
 				} else {
@@ -316,6 +425,13 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 				return errors.New("invalid table size")
 			}
 			table := &ir.Table{ID: rand.Text(), ColumnWidths: make([]float64, command.Columns)}
+			if command.Style != "" {
+				style, exists := document.Styles.Named[command.Style]
+				if !exists || style.Table == nil {
+					return errors.New("a defined table style is required")
+				}
+				table.Style = command.Style
+			}
 			width := (section.Properties.Width - section.Properties.MarginLeft - section.Properties.MarginRight - section.Properties.Gutter) / float64(command.Columns)
 			if width <= 0 {
 				width = 72
@@ -368,6 +484,9 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 		return nil
 	}
 	if command.ID == "paragraph.delete" || command.ID == "table.delete" {
+		if hasPendingChanges([]ir.Block{block}) {
+			return errors.New("resolve tracked changes before deleting this block")
+		}
 		if command.ID == "paragraph.delete" && block.BlockType() != ir.BlockParagraph || command.ID == "table.delete" && block.BlockType() != ir.BlockTable {
 			return errors.New("block type does not match the command")
 		}
@@ -382,7 +501,23 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 		if !ok {
 			return errors.New("a table is required")
 		}
+		if command.ID == "table.style" {
+			if command.Style != "" && command.Style != "TableNormal" {
+				style, exists := document.Styles.Named[command.Style]
+				if !exists || style.Table == nil {
+					return errors.New("a defined table style is required")
+				}
+			}
+			table.Style = command.Style
+			return nil
+		}
+		if command.ID != "table.row.insert.suggest" && command.ID != "table.row.delete.suggest" && hasPendingChanges([]ir.Block{table}) {
+			return errors.New("resolve tracked changes before changing the table structure")
+		}
 		for _, row := range table.Rows {
+			if row.Change != nil && command.ID != "table.row.insert.suggest" && command.ID != "table.row.delete.suggest" {
+				return errors.New("resolve tracked row changes before changing the table structure")
+			}
 			for _, cell := range row.Cells {
 				if cell.RowSpan > 1 || cell.ColSpan > 1 {
 					return errors.New("structural edits to merged cells need an explicit merge operation")
@@ -390,7 +525,7 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 			}
 		}
 		switch command.ID {
-		case "table.row.insert":
+		case "table.row.insert", "table.row.insert.suggest":
 			if len(table.Rows) == 0 {
 				return errors.New("table has no rows")
 			}
@@ -401,12 +536,31 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 			for range table.Rows[0].Cells {
 				row.Cells = append(row.Cells, newEditingCell())
 			}
+			if command.ID == "table.row.insert.suggest" {
+				if command.Change == nil || command.Change.Author == "" {
+					return errors.New("tracked row insertion requires author and date")
+				}
+				change := *command.Change
+				change.ID = nextTextChangeID(document)
+				change.Type = "insert"
+				row.Change = &change
+			}
 			table.Rows = slices.Insert(table.Rows, command.At, row)
-		case "table.row.delete":
+		case "table.row.delete", "table.row.delete.suggest":
 			if command.At < 0 || command.At >= len(table.Rows) || len(table.Rows) == 1 {
 				return errors.New("invalid table row deletion")
 			}
-			table.Rows = slices.Delete(table.Rows, command.At, command.At+1)
+			if command.ID == "table.row.delete.suggest" {
+				if command.Change == nil || command.Change.Author == "" || table.Rows[command.At].Change != nil {
+					return errors.New("tracked row deletion requires author, date, and an unchanged row")
+				}
+				change := *command.Change
+				change.ID = nextTextChangeID(document)
+				change.Type = "delete"
+				table.Rows[command.At].Change = &change
+			} else {
+				table.Rows = slices.Delete(table.Rows, command.At, command.At+1)
+			}
 		case "table.column.insert", "table.column.delete":
 			if len(table.Rows) == 0 {
 				return errors.New("table has no rows")
@@ -589,7 +743,7 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 			document.Styles.Numbering = append(document.Styles.Numbering, definition)
 		}
 		paragraph.Numbering = &ir.NumberingRef{ID: definition.ID, Level: command.Level, Restart: command.Restart}
-	case "text.replace", "text.format", "text.link":
+	case "text.format.suggest", "text.suggest", "text.replace", "text.format", "text.link":
 		if command.Start < 0 || command.End < command.Start {
 			return errors.New("invalid text selection")
 		}
@@ -601,7 +755,53 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 		if err != nil {
 			return err
 		}
+		for _, run := range selected {
+			if run.Change != nil {
+				return errors.New("resolve the existing tracked change before editing this selection")
+			}
+		}
 		switch command.ID {
+		case "text.format.suggest":
+			if command.Change == nil || command.Change.Author == "" || command.Run == nil {
+				return errors.New("tracked formatting requires an author, date, and formatting")
+			}
+			id := nextTextChangeID(document)
+			for index := range selected {
+				previous := selected[index].Attrs
+				revision := *command.Change
+				revision.ID = id + index
+				revision.Type = "format"
+				revision.Previous = &previous
+				revision.PreviousStyle = selected[index].Style
+				selected[index].Attrs = previous.Overlay(*command.Run)
+				selected[index].Change = &revision
+			}
+		case "text.suggest":
+			if command.Change == nil || command.Change.Author == "" || !utf8.ValidString(command.Text) || strings.ContainsAny(command.Text, "\r\n") {
+				return errors.New("tracked text requires an author, date, and valid paragraph text")
+			}
+			id := nextTextChangeID(document)
+			for i := range selected {
+				if selected[i].Field != nil || selected[i].Hyperlink != nil || selected[i].Break != ir.BreakNone {
+					return errors.New("tracked changes to fields, links, and breaks are not supported")
+				}
+				revision := *command.Change
+				revision.ID = id
+				revision.Type = "delete"
+				selected[i].Change = &revision
+			}
+			var attrs ir.RunAttrs
+			if len(selected) > 0 {
+				attrs = selected[0].Attrs
+			} else if len(before) > 0 {
+				attrs = before[len(before)-1].Attrs
+			}
+			if command.Text != "" {
+				revision := *command.Change
+				revision.ID = id + 1
+				revision.Type = "insert"
+				selected = append(selected, ir.Run{Text: command.Text, Attrs: attrs, Change: &revision})
+			}
 		case "text.replace":
 			size := len(utf16.Encode([]rune(command.Text)))
 			replaceEditingBookmarkText(*blocks, paragraph.ID, command.Start, command.End, size)
@@ -656,7 +856,42 @@ func splitEditingRuns(runs []ir.Run, offset int) ([]ir.Run, []ir.Run, error) {
 		return nil, nil, errors.New("invalid text position")
 	}
 	var before, after []ir.Run
-	for _, run := range runs {
+	for index := 0; index < len(runs); index++ {
+		run := runs[index]
+		if run.Field != nil && run.Field.Type == "begin" {
+			depth, end, length := 1, index+1, 0
+			for ; end < len(runs); end++ {
+				item := runs[end]
+				if item.Field != nil {
+					if item.Field.Type == "begin" {
+						depth++
+					}
+					if item.Field.Type == "end" {
+						depth--
+					}
+				}
+				length += len(utf16.Encode([]rune(item.Text)))
+				if item.Break != ir.BreakNone {
+					length++
+				}
+				if depth == 0 {
+					break
+				}
+			}
+			if depth != 0 {
+				return nil, nil, errors.New("text editing cannot split a field across paragraphs")
+			}
+			if offset == 0 {
+				return before, append(after, runs[index:]...), nil
+			}
+			if offset < length {
+				return nil, nil, errors.New("text editing cannot split a document field")
+			}
+			before = append(before, runs[index:end+1]...)
+			offset -= length
+			index = end
+			continue
+		}
 		size := len(utf16.Encode([]rune(run.Text)))
 		if run.Break != ir.BreakNone {
 			size++
@@ -710,4 +945,21 @@ func validEditingPage(page ir.PageProperties) bool {
 		}
 	}
 	return page.Width > page.MarginLeft+page.MarginRight+page.Gutter && page.Height > page.MarginTop+page.MarginBottom && (page.Orientation == ir.Portrait || page.Orientation == ir.Landscape)
+}
+
+func walkBlocksForEditing(blocks []ir.Block, visit func(*ir.Paragraph)) {
+	for _, block := range blocks {
+		switch value := block.(type) {
+		case *ir.Paragraph:
+			visit(value)
+		case *ir.Table:
+			for _, row := range value.Rows {
+				for _, cell := range row.Cells {
+					walkBlocksForEditing(cell.Blocks, visit)
+				}
+			}
+		case *ir.Shape:
+			walkBlocksForEditing(value.Blocks, visit)
+		}
+	}
 }

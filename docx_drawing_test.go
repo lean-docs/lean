@@ -125,7 +125,7 @@ func TestDrawingCommandsPreserveReferenceMediaAndAreAtomic(t *testing.T) {
 
 func TestHeaderOptionsCanBeDisabledWithoutDeletingVariantContent(t *testing.T) {
 	document := lean.NewDOCX("Body")
-	document.Sections[0].Headers = []*ir.HeaderFooter{{Kind: ir.HeaderFooterFirst, Blocks: []ir.Block{editingParagraph("first", "First page header")}}, {Kind: ir.HeaderFooterEven, Blocks: []ir.Block{editingParagraph("even", "Even page header")}}}
+	document.Sections[0].Headers = []*ir.HeaderFooter{{Type: ir.HeaderFooterFirst, Blocks: []ir.Block{editingParagraph("first", "First page header")}}, {Type: ir.HeaderFooterEven, Blocks: []ir.Block{editingParagraph("even", "Even page header")}}}
 	disabled := false
 	edited, err := lean.ApplyDOCXCommands(document, []lean.DocumentCommand{{ID: "header.options", EvenAndOddHeaders: &disabled, DifferentFirstPage: &disabled}})
 	require.NoError(t, err)

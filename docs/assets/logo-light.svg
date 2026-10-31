@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 206 72" width="206" height="72" role="img" aria-label="Lean">
+  <path d="M14 4H42L58 20V60A8 8 0 0 1 50 68H14A8 8 0 0 1 6 60V12A8 8 0 0 1 14 4Z" fill="#111827"/>
+  <path d="M42 4V14A6 6 0 0 0 48 20H58Z" fill="#4B5563"/>
+  <rect x="16" y="29" width="26" height="6" rx="2" fill="#F9FAFB"/>
+  <rect x="16" y="41" width="32" height="6" rx="2" fill="#F9FAFB"/>
+  <rect x="16" y="53" width="14" height="6" rx="2" fill="#F9FAFB"/>
+  <rect x="33" y="53" width="15" height="6" rx="2" fill="#14B8A6"/>
+  <g fill="none" stroke="#111827" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M87 13V55"/>
+    <path d="M102 44H124A11 11 0 1 0 120.8 51.8"/>
+    <circle cx="149" cy="44" r="11"/>
+    <path d="M160 33V55"/>
+    <path d="M174 55V33M174 44A11 11 0 0 1 196 44V55"/>
+  </g>
+</svg>

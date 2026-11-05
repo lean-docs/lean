@@ -9,6 +9,7 @@ import (
 )
 
 type DrawingLayout struct {
+	Alt    *string           `json:"alt,omitempty"`
 	Width  *float64          `json:"width,omitempty"`
 	Height *float64          `json:"height,omitempty"`
 	Anchor *ir.DrawingAnchor `json:"anchor,omitempty"`
@@ -60,6 +61,11 @@ func applyDrawingCommand(blocks *[]ir.Block, command DocumentCommand) error {
 	case "drawing.layout":
 		if command.Drawing == nil {
 			return errors.New("a drawing layout is required")
+		}
+		if command.Drawing.Alt != nil {
+			if image, ok := (*parent)[index].(*ir.Image); ok {
+				image.Alt = *command.Drawing.Alt
+			}
 		}
 		if command.Drawing.Width != nil {
 			*width = *command.Drawing.Width

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.1.0-alpha.4] - 2026-11-05
+
+### Added
+- Atomic table formatting commands for widths, alignment, padding, borders, shading and repeating header rows
+- Picture alternative text updates through drawing layout commands
+
 ## [0.1.0-alpha.3] - 2026-10-30
 
 ### Added

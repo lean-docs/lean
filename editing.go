@@ -17,6 +17,7 @@ import (
 var ErrInvalidCommand = errors.New("lean: invalid document command")
 
 type DocumentCommand struct {
+	CellRange          *TableCellRange     `json:"cell_range,omitempty"`
 	TableFormat        *TableFormat        `json:"table_format,omitempty"`
 	Change             *ir.Change          `json:"change,omitempty"`
 	ChangeID           *int                `json:"change_id,omitempty"`
@@ -67,7 +68,7 @@ func DOCXCommands() []DocumentCommandInfo {
 		{ID: "style.set", Capability: "paragraph-formatting"}, {ID: "style.remove", Capability: "paragraph-formatting"},
 		{ID: "paragraph.format", Capability: "paragraph-formatting"}, {ID: "paragraph.style", Capability: "paragraph-formatting"}, {ID: "paragraph.insert", Capability: "text"}, {ID: "paragraph.delete", Capability: "text"}, {ID: "paragraph.split", Capability: "text"}, {ID: "paragraph.join", Capability: "text"},
 		{ID: "list.set", Capability: "lists"}, {ID: "list.remove", Capability: "lists"},
-		{ID: "table.insert.suggest", Capability: "tracked-changes"}, {ID: "table.row.insert.suggest", Capability: "tracked-changes"}, {ID: "table.row.delete.suggest", Capability: "tracked-changes"}, {ID: "table.format", Capability: "tables"}, {ID: "table.style", Capability: "table-styles"}, {ID: "table.insert", Capability: "tables"}, {ID: "table.delete", Capability: "tables"}, {ID: "table.row.insert", Capability: "tables"}, {ID: "table.row.delete", Capability: "tables"}, {ID: "table.column.insert", Capability: "tables"}, {ID: "table.column.delete", Capability: "tables"},
+		{ID: "table.insert.suggest", Capability: "tracked-changes"}, {ID: "table.row.insert.suggest", Capability: "tracked-changes"}, {ID: "table.row.delete.suggest", Capability: "tracked-changes"}, {ID: "table.merge", Capability: "tables"}, {ID: "table.split", Capability: "tables"}, {ID: "table.format", Capability: "tables"}, {ID: "table.style", Capability: "table-styles"}, {ID: "table.insert", Capability: "tables"}, {ID: "table.delete", Capability: "tables"}, {ID: "table.row.insert", Capability: "tables"}, {ID: "table.row.delete", Capability: "tables"}, {ID: "table.column.insert", Capability: "tables"}, {ID: "table.column.delete", Capability: "tables"},
 		{ID: "image.insert", Capability: "images"}, {ID: "shape.insert", Capability: "shapes"}, {ID: "drawing.layout", Capability: "drawing-anchors"}, {ID: "drawing.delete", Capability: "drawing-anchors"},
 		{ID: "page.layout", Capability: "page-layout"}, {ID: "page.columns", Capability: "page-columns"}, {ID: "section.insert", Capability: "sections"}, {ID: "section.delete", Capability: "sections"}, {ID: "section.break", Capability: "sections"},
 		{ID: "watermark.set", Capability: "text-watermarks"}, {ID: "watermark.remove", Capability: "text-watermarks"}, {ID: "header.options", Capability: "headers"}, {ID: "header.set", Capability: "headers"}, {ID: "header.remove", Capability: "headers"}, {ID: "footer.set", Capability: "footers"}, {ID: "footer.remove", Capability: "footers"},
@@ -501,6 +502,9 @@ func applyDOCXCommand(document *ir.Document, command DocumentCommand) error {
 		table, ok := block.(*ir.Table)
 		if !ok {
 			return errors.New("a table is required")
+		}
+		if command.ID == "table.merge" || command.ID == "table.split" {
+			return applyTableMerge(table, command.CellRange, command.ID == "table.split")
 		}
 		if command.ID == "table.format" {
 			return applyTableFormat(table, command.TableFormat)

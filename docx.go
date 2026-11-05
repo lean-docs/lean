@@ -99,8 +99,7 @@ func inspectDOCX(input []byte) (FidelityReport, error) {
 		}
 	}
 	markers := map[string]string{
-		"<w:sdt":    "content-controls",
-		"<w:vMerge": "row-spans",
+		"<w:sdt": "content-controls",
 	}
 	for marker, feature := range markers {
 		if strings.Contains(auxiliaryXML.String(), marker) {
@@ -181,9 +180,6 @@ func walkDocumentBlocks(blocks []ir.Block, report *FidelityReport) {
 		case *ir.Table:
 			for _, row := range value.Rows {
 				for _, cell := range row.Cells {
-					if cell.RowSpan > 1 {
-						report.addUnsupported("row-spans")
-					}
 					walkDocumentBlocks(cell.Blocks, report)
 				}
 			}

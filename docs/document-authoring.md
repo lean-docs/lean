@@ -4,4 +4,4 @@
 
 `drawing.layout` accepts optional `drawing.alt` to update a picture's alternative text without changing image bytes or its anchor. Existing drawing dimensions and anchor fields remain optional.
 
-Vertical merging and cell splitting are not added by these commands. Table style selection remains a separate operation.
+`table.merge` merges an unmerged rectangle selected by zero-based `cell_range.row`, `column`, `rows` and `columns`. All selected cell contents move to the origin in row order. Split existing merged cells before merging another range in that table. `table.split` selects a merged origin by row and logical column; its contents stay in the first resulting cell. Both commands reject pending tracked changes. Vertical spans retain continuation cells in canonical IR and export as DOCX vertical merges. Other export formats may flatten the table geometry. Table style selection remains a separate operation.

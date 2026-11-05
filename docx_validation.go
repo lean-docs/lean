@@ -40,13 +40,13 @@ func inspectDocumentStructure(document *ir.Document, report *FidelityReport) {
 				}
 			}
 			columns := -1
-			for _, row := range table.Rows {
+			for rowIndex, row := range table.Rows {
 				count := 0
 				if len(row.Cells) == 0 || row.Height != nil && (!finite(*row.Height) || *row.Height < 0) {
 					report.addUnsupported("invalid-table")
 				}
 				for _, cell := range row.Cells {
-					if cell.ColSpan < 0 || cell.RowSpan < 0 || cell.VAlign < ir.VAlignTop || cell.VAlign > ir.VAlignBottom {
+					if cell.RowSpan > len(table.Rows)-rowIndex || cell.ColSpan < 0 || cell.RowSpan < 0 || cell.VAlign < ir.VAlignTop || cell.VAlign > ir.VAlignBottom {
 						report.addUnsupported("invalid-table")
 					}
 					count += max(1, cell.ColSpan)

@@ -30,6 +30,11 @@ func TestTableFormatCommandsRoundTrip(t *testing.T) {
 	require.Equal(t, widths, restored.ColumnWidths)
 	require.Equal(t, padding, restored.Rows[0].Cells[0].Padding)
 	require.Equal(t, align, restored.Align)
+	reset, err := lean.ApplyDOCXCommands(edited, []lean.DocumentCommand{{ID: "table.format", Block: table.ID, TableFormat: &lean.TableFormat{ResetStyle: true}}})
+	require.NoError(t, err)
+	resetTable := reset.Sections[0].Blocks[1].(*ir.Table)
+	require.Equal(t, ir.Padding{}, resetTable.Rows[0].Cells[0].Padding)
+	require.Equal(t, widths, resetTable.ColumnWidths)
 	require.True(t, restored.Rows[0].IsHeader)
 	require.False(t, restored.Rows[1].IsHeader)
 	bad := []float64{1}

@@ -6,6 +6,7 @@ import (
 )
 
 type TableFormat struct {
+	ResetStyle    bool            `json:"reset_style,omitempty"`
 	ColumnWidths  *[]float64      `json:"column_widths,omitempty"`
 	Align         *ir.Alignment   `json:"align,omitempty"`
 	Padding       *ir.Padding     `json:"padding,omitempty"`
@@ -21,6 +22,19 @@ func applyTableFormat(table *ir.Table, format *TableFormat) error {
 	}
 	if hasPendingChanges([]ir.Block{table}) {
 		return errors.New("resolve tracked changes before formatting a table")
+	}
+	if format.ResetStyle {
+		table.Borders = ir.TableBorders{}
+		table.Shading = ir.Color{}
+		for rowIndex := range table.Rows {
+			for cellIndex := range table.Rows[rowIndex].Cells {
+				cell := &table.Rows[rowIndex].Cells[cellIndex]
+				cell.Borders = ir.CellBorders{}
+				cell.Shading = ir.Color{}
+				cell.Padding = ir.Padding{}
+				cell.VAlign = ir.VAlignTop
+			}
+		}
 	}
 	if format.ColumnWidths != nil {
 		count := 0

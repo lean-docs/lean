@@ -40,13 +40,31 @@ func inspectDocumentStructure(document *ir.Document, report *FidelityReport) {
 				}
 			}
 			columns := -1
-			for _, row := range table.Rows {
+			for rowIndex, row := range table.Rows {
 				count := 0
 				if len(row.Cells) == 0 || row.Height != nil && (!finite(*row.Height) || *row.Height < 0) {
 					report.addUnsupported("invalid-table")
 				}
+				logicalColumn := 0
 				for _, cell := range row.Cells {
-					if cell.ColSpan < 0 || cell.RowSpan < 0 || cell.VAlign < ir.VAlignTop || cell.VAlign > ir.VAlignBottom {
+					if cell.RowSpan > 1 {
+						for next := rowIndex + 1; next < min(len(table.Rows), rowIndex+cell.RowSpan); next++ {
+							column, matched := 0, false
+							for _, continuation := range table.Rows[next].Cells {
+								if column == logicalColumn {
+									matched = max(1, continuation.ColSpan) == max(1, cell.ColSpan) && continuation.RowSpan <= 1
+									break
+								}
+								column += max(1, continuation.ColSpan)
+							}
+							if !matched {
+								report.addUnsupported("invalid-table-merge")
+							}
+						}
+					}
+					logicalColumn += max(1, cell.ColSpan)
+
+					if cell.RowSpan > len(table.Rows)-rowIndex || cell.ColSpan < 0 || cell.RowSpan < 0 || cell.VAlign < ir.VAlignTop || cell.VAlign > ir.VAlignBottom {
 						report.addUnsupported("invalid-table")
 					}
 					count += max(1, cell.ColSpan)

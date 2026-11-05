@@ -467,7 +467,8 @@ func writeTable(output *strings.Builder, table *ir.Table, imageIndex *int, state
 		}
 		output.WriteString("</w:tblGrid>")
 	}
-	for _, row := range table.Rows {
+	activeMerges := map[int]int{}
+	for rowIndex, row := range table.Rows {
 		output.WriteString("<w:tr>")
 		if row.IsHeader || row.Height != nil || row.Change != nil {
 			output.WriteString("<w:trPr>")
@@ -486,10 +487,21 @@ func writeTable(output *strings.Builder, table *ir.Table, imageIndex *int, state
 			}
 			output.WriteString("</w:trPr>")
 		}
+		gridColumn := 0
 		for _, cell := range row.Cells {
+			continuation := activeMerges[gridColumn] > rowIndex
+			if cell.RowSpan > 1 {
+				activeMerges[gridColumn] = rowIndex + cell.RowSpan
+			}
+			gridColumn += max(1, cell.ColSpan)
 			output.WriteString("<w:tc>")
-			if cell.ColSpan > 1 || cell.Width > 0 || cell.VAlign != ir.VAlignTop || cell.Borders != (ir.CellBorders{}) || cell.Shading != (ir.Color{}) || cell.Padding != (ir.Padding{}) {
+			if continuation || cell.RowSpan > 1 || cell.ColSpan > 1 || cell.Width > 0 || cell.VAlign != ir.VAlignTop || cell.Borders != (ir.CellBorders{}) || cell.Shading != (ir.Color{}) || cell.Padding != (ir.Padding{}) {
 				output.WriteString("<w:tcPr>")
+				if continuation {
+					output.WriteString(`<w:vMerge/>`)
+				} else if cell.RowSpan > 1 {
+					output.WriteString(`<w:vMerge w:val="restart"/>`)
+				}
 				if cell.Width > 0 {
 					output.WriteString(`<w:tcW w:w="` + twips(cell.Width) + `" w:type="dxa"/>`)
 				}

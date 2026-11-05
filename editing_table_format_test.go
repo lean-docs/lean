@@ -1,9 +1,12 @@
 package lean_test
 
 import (
+	"bytes"
 	lean "github.com/lean-docs/lean"
 	"github.com/lean-docs/lean/pkg/ir"
 	"github.com/stretchr/testify/require"
+	"image/jpeg"
+	"image/png"
 	"os"
 	"testing"
 )
@@ -59,4 +62,33 @@ func TestPictureAlternativeTextRoundTrip(t *testing.T) {
 	require.Equal(t, alt, restored.Alt)
 	require.Equal(t, picture.Data, restored.Data)
 	require.Equal(t, picture.Anchor, restored.Anchor)
+}
+
+func TestPictureReplacementPreservesIdentityAndLayout(t *testing.T) {
+	input, err := os.ReadFile("testdata/reference-layouts/nested-textbox.docx")
+	require.NoError(t, err)
+	doc, _, err := lean.OpenDOCX(input)
+	require.NoError(t, err)
+	picture := doc.Sections[0].Blocks[1].(*ir.Shape).Blocks[1].(*ir.Image)
+	bitmap, err := png.Decode(bytes.NewReader(picture.Data))
+	require.NoError(t, err)
+	var encoded bytes.Buffer
+	require.NoError(t, jpeg.Encode(&encoded, bitmap, nil))
+	data, format := encoded.Bytes(), ir.ImageJPEG
+	edited, err := lean.ApplyDOCXCommands(doc, []lean.DocumentCommand{{ID: "drawing.layout", Block: picture.ID, Drawing: &lean.DrawingLayout{Data: &data, Format: &format}}})
+	require.NoError(t, err)
+	changed := edited.Sections[0].Blocks[1].(*ir.Shape).Blocks[1].(*ir.Image)
+	require.Equal(t, picture.ID, changed.ID)
+	require.Equal(t, picture.Anchor, changed.Anchor)
+	require.Equal(t, picture.Width, changed.Width)
+	require.Equal(t, picture.Height, changed.Height)
+	content, _, err := lean.SaveDOCX(edited)
+	require.NoError(t, err)
+	reopened, _, err := lean.OpenDOCX(content)
+	require.NoError(t, err)
+	restored := reopened.Sections[0].Blocks[1].(*ir.Shape).Blocks[1].(*ir.Image)
+	require.Equal(t, data, restored.Data)
+	require.Equal(t, format, restored.Format)
+	_, err = lean.ApplyDOCXCommands(doc, []lean.DocumentCommand{{ID: "drawing.layout", Block: picture.ID, Drawing: &lean.DrawingLayout{Data: &data}}})
+	require.Error(t, err)
 }

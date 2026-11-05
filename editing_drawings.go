@@ -9,6 +9,8 @@ import (
 )
 
 type DrawingLayout struct {
+	Data   *[]byte           `json:"data,omitempty"`
+	Format *ir.ImageFormat   `json:"format,omitempty"`
 	Alt    *string           `json:"alt,omitempty"`
 	Width  *float64          `json:"width,omitempty"`
 	Height *float64          `json:"height,omitempty"`
@@ -61,6 +63,14 @@ func applyDrawingCommand(blocks *[]ir.Block, command DocumentCommand) error {
 	case "drawing.layout":
 		if command.Drawing == nil {
 			return errors.New("a drawing layout is required")
+		}
+		if command.Drawing.Data != nil || command.Drawing.Format != nil {
+			image, ok := (*parent)[index].(*ir.Image)
+			if !ok || command.Drawing.Data == nil || command.Drawing.Format == nil || len(*command.Drawing.Data) == 0 {
+				return errors.New("image bytes and format are required together")
+			}
+			image.Data = append([]byte(nil), (*command.Drawing.Data)...)
+			image.Format = *command.Drawing.Format
 		}
 		if command.Drawing.Alt != nil {
 			if image, ok := (*parent)[index].(*ir.Image); ok {

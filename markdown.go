@@ -89,15 +89,15 @@ func isolateMarkdownLinksAndInputs(source []byte) []byte {
 	tokenizer := nethtml.NewTokenizer(bytes.NewReader(source))
 	var output bytes.Buffer
 	for {
-		kind := tokenizer.Next()
-		if kind == nethtml.ErrorToken {
+		tokenType := tokenizer.Next()
+		if tokenType == nethtml.ErrorToken {
 			if tokenizer.Err() != io.EOF {
 				return source
 			}
 			return output.Bytes()
 		}
 		raw := bytes.Clone(tokenizer.Raw())
-		if kind != nethtml.StartTagToken && kind != nethtml.SelfClosingTagToken {
+		if tokenType != nethtml.StartTagToken && tokenType != nethtml.SelfClosingTagToken {
 			output.Write(raw)
 			continue
 		}

@@ -1157,7 +1157,7 @@ func applyRowSpans(tbl *ir.Table, rows []xmlTableRow) {
 		return col
 	}
 
-	vmergeKind := func(c xmlTableCell) string {
+	verticalMergeType := func(c xmlTableCell) string {
 		if c.Props == nil || c.Props.VMerge == nil {
 			return ""
 		}
@@ -1184,14 +1184,14 @@ func applyRowSpans(tbl *ir.Table, rows []xmlTableRow) {
 
 	for i := range rows {
 		for j := range rows[i].Cells {
-			if vmergeKind(rows[i].Cells[j]) != "restart" {
+			if verticalMergeType(rows[i].Cells[j]) != "restart" {
 				continue
 			}
 			col := gridCol(i, j)
 			span := 1
 			for k := i + 1; k < len(rows); k++ {
 				ci, ok := cellAtGridCol(k, col)
-				if !ok || vmergeKind(rows[k].Cells[ci]) != "continue" {
+				if !ok || verticalMergeType(rows[k].Cells[ci]) != "continue" {
 					break
 				}
 				span++

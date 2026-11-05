@@ -32,6 +32,8 @@ func TestTableMergeSplitSurviveDOCX(t *testing.T) {
 	require.Equal(t, 2, restored.Rows[0].Cells[0].RowSpan)
 	require.Equal(t, 2, restored.Rows[0].Cells[0].ColSpan)
 	require.Len(t, restored.Rows[0].Cells[0].Blocks, 4)
+	_, err = lean.ApplyDOCXCommands(reopened, []lean.DocumentCommand{{ID: "table.split", Block: restored.ID, CellRange: &lean.TableCellRange{Row: 1, Column: 0}}})
+	require.Error(t, err)
 	split, err := lean.ApplyDOCXCommands(reopened, []lean.DocumentCommand{{ID: "table.split", Block: restored.ID, CellRange: &lean.TableCellRange{Row: 0, Column: 0}}})
 	require.NoError(t, err)
 	after := split.Sections[0].Blocks[1].(*ir.Table)

@@ -21,6 +21,16 @@ func applyTableMerge(table *ir.Table, area *TableCellRange, split bool) error {
 		return errors.New("resolve tracked changes before merging cells")
 	}
 	if split {
+		for rowIndex, row := range table.Rows[:area.Row] {
+			logical := 0
+			for _, cell := range row.Cells {
+				if rowIndex+cell.RowSpan > area.Row && area.Column >= logical && area.Column < logical+max(1, cell.ColSpan) {
+					return errors.New("select the origin of a merged cell")
+				}
+				logical += max(1, cell.ColSpan)
+			}
+		}
+
 		index := -1
 		column := 0
 		for i, cell := range table.Rows[area.Row].Cells {
